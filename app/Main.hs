@@ -4,4 +4,6 @@ import Lib
 import MungoParser
 
 main :: IO ()
-main = someFunc
+main = putStrLn "hello world"
+ 
+        

@@ -1,4 +1,4 @@
-module ExpressionParser where
+module MungoParser where
 
 import System.IO
 import Control.Monad
@@ -72,6 +72,8 @@ colon      = Token.colon      lexer -- parses a semicolon
 whiteSpace = Token.whiteSpace lexer -- parses whitespace
 dot        = Token.dot        lexer
 
+parseProgram = parse parseClass "" 
+
 parseClass :: Parser Class
 parseClass =
     do reserved "class" 
@@ -112,7 +114,7 @@ parseField :: Parser Field
 parseField =
     do fieldtype <- identifier
        fieldname <- identifier
-       semi
+       --semi
        return $ Field fieldtype fieldname
        
 
@@ -246,10 +248,10 @@ parseIdentifierExpr =
     do str <- identifier
        return $ ExprIdentifier str 
 
-parseStr = parse (parseExpr <* eof) ""
-parseU = parse (parseUsage <* eof) ""
-parseF = parse (parseFields <* eof) ""
-parseM = parse (parseMethods <* eof) ""
-parseC = parse (parseClass <* eof) ""
-parseT = parse (testParse <* eof) ""
-parseT' = parse testParse ""
+
+parseFile :: String -> IO String
+parseFile f = do
+    t <- readFile f
+    return $ case parseProgram t of
+        Right prog -> show $ prog 
+        Left  err  -> show $ err
