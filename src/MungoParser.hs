@@ -16,7 +16,7 @@ data Usage = UsageChoice [(String, Usage)]
            | UsageRecursive String Usage
            | UsageVariable String
            | UsageEnd
-             deriving (Show)
+             deriving (Show, Eq)
 
 data Field = Field String String 
              deriving (Show)
