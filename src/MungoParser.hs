@@ -21,15 +21,15 @@ data Usage = UsageChoice [(String, Usage)]
 data Field = Field String String 
              deriving (Show)
 
-data Method = Method String String String String Expr 
+data Method = Method String String String String Expression 
              deriving (Show)
 
-data Expr = ExprNew String
-          | ExprAssign String Expr
-          | ExprCall String String Expr
-          | ExprSeq Expr Expr
-          | ExprIf Expr Expr Expr
-          | ExprLabel String Expr 
+data Expression = ExprNew String
+          | ExprAssign String Expression
+          | ExprCall String String Expression
+          | ExprSeq Expression Expression
+          | ExprIf Expression Expression Expression
+          | ExprLabel String Expression 
           | ExprContinue String
           | ExprBoolConst Bool
           | ExprNull
@@ -71,6 +71,7 @@ semi       = Token.semi       lexer -- parses a semicolon
 colon      = Token.colon      lexer -- parses a semicolon
 whiteSpace = Token.whiteSpace lexer -- parses whitespace
 dot        = Token.dot        lexer
+
 
 parseProgram = parse parseClass "" 
 
@@ -176,11 +177,11 @@ parseVariableUsage =
 parseEndUsage :: Parser Usage
 parseEndUsage = reserved "end" >> return UsageEnd
 
-parseExpr :: Parser Expr
+parseExpr :: Parser Expression
 parseExpr =   parseSeqExpr 
           <|> parseExpr'
 
-parseExpr' :: Parser Expr
+parseExpr' :: Parser Expression
 parseExpr' = parens parseExpr
            <|> try parseLabelExpr 
            <|> parseNewExpr
@@ -190,32 +191,32 @@ parseExpr' = parens parseExpr
            <|> parseConstValuesExpr
            <|> parseIdentifierExpr
 
-parseNewExpr :: Parser Expr
+parseNewExpr :: Parser Expression
 parseNewExpr =
     do reserved "new"
        var <- identifier
        return $ ExprNew var
 
-parseAssignExpr :: Parser Expr
+parseAssignExpr :: Parser Expression
 parseAssignExpr = 
     do var <- identifier
        reserved "="
        expr <- parseExpr 
        return $ ExprAssign var expr 
 
-parseSeqExpr :: Parser Expr
+parseSeqExpr :: Parser Expression
 parseSeqExpr =
     do list <- (sepBy1 parseExpr' semi)
        return $ unfoldSeqExpr list
 
-unfoldSeqExpr :: [Expr] -> Expr
+unfoldSeqExpr :: [Expression] -> Expression
 unfoldSeqExpr list = 
     case length list of
         1 -> head list
         n -> ExprSeq (head list) (unfoldSeqExpr (tail list))
    
        
-parseIfExpr :: Parser Expr
+parseIfExpr :: Parser Expression
 parseIfExpr =
     do reserved "if"
        cond <- parens parseExpr
@@ -223,27 +224,27 @@ parseIfExpr =
        expr2 <- braces parseExpr
        return $ ExprIf cond expr1 expr2
 
-parseLabelExpr :: Parser Expr
+parseLabelExpr :: Parser Expression
 parseLabelExpr =
     do label <- identifier
        reserved ":"
        expr <- parseExpr
        return $ ExprLabel label expr
        
-parseContinueExpr :: Parser Expr
+parseContinueExpr :: Parser Expression
 parseContinueExpr =
     do reserved "continue"
        label <- identifier
        return $ ExprContinue label
        
-parseConstValuesExpr :: Parser Expr
+parseConstValuesExpr :: Parser Expression
 parseConstValuesExpr =
         (reserved "true"  >> return (ExprBoolConst True))
     <|> (reserved "false" >> return (ExprBoolConst False))
     <|> (reserved "null"  >> return ExprNull)
     <|> (reserved "unit"  >> return ExprUnit)
 
-parseIdentifierExpr :: Parser Expr
+parseIdentifierExpr :: Parser Expression
 parseIdentifierExpr = 
     do str <- identifier
        return $ ExprIdentifier str 
