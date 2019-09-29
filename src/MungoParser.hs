@@ -1,4 +1,10 @@
-module MungoParser where
+module MungoParser( CstClass (CstClass)
+                  , CstUsage
+                  , CstField
+                  , CstMethod   
+                  , CstExpression
+                  , parseProgram 
+                  , parseUsage') where
 
 import System.IO
 import Control.Monad
@@ -7,35 +13,43 @@ import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
+import Control.Arrow (left)
 
-data Class = Class String Usage [Field] [Method]
-             deriving (Show)
+parseUsage' = parse parseUsage ""
 
-data Usage = UsageChoice [(String, Usage)]
-           | UsageBranch [(String, Usage)]
-           | UsageRecursive String Usage
-           | UsageVariable String
-           | UsageEnd
-             deriving (Show, Eq)
+data CstClass = CstClass String 
+                         CstUsage 
+                         [(String, CstUsage)] 
+                         [CstField] 
+                         [CstMethod] 
+                deriving (Show)
 
-data Field = Field String String 
-             deriving (Show)
+type CstRecUsage = (String, CstUsage)
 
-data Method = Method String String String String Expression 
-             deriving (Show)
+data CstUsage = CstUsageChoice [(String, CstUsage)]
+              | CstUsageBranch [(String, CstUsage)]
+              | CstUsageVariable String
+              | CstUsageEnd
+                deriving (Show, Eq)
 
-data Expression = ExprNew String
-          | ExprAssign String Expression
-          | ExprCall String String Expression
-          | ExprSeq Expression Expression
-          | ExprIf Expression Expression Expression
-          | ExprLabel String Expression 
-          | ExprContinue String
-          | ExprBoolConst Bool
-          | ExprNull
-          | ExprUnit
-          | ExprIdentifier String 
-            deriving (Show)
+data CstField = CstField String String 
+                deriving (Show)
+
+data CstMethod = CstMethod String String String String CstExpression 
+                 deriving (Show)
+
+data CstExpression = CstExprNew String
+                   | CstExprAssign String CstExpression
+                   | CstExprCall String String CstExpression
+                   | CstExprSeq CstExpression CstExpression
+                   | CstExprIf CstExpression CstExpression CstExpression
+                   | CstExprLabel String CstExpression 
+                   | CstExprContinue String
+                   | CstExprBoolConst Bool
+                   | CstExprNull
+                   | CstExprUnit
+                   | CstExprIdentifier String 
+                     deriving (Show)
 
 languageDef =
    emptyDef { Token.commentStart    = "/*"
@@ -62,6 +76,7 @@ identifier = Token.identifier lexer -- parses an identifier
 reserved   = Token.reserved   lexer -- parses a reserved name
 reservedOp = Token.reservedOp lexer -- parses an operator
 angles     = Token.angles     lexer -- 
+brackets   = Token.brackets   lexer -- 
 braces     = Token.braces     lexer -- 
 parens     = Token.parens     lexer -- parses surrounding parenthesis:
                                     --   parens p
@@ -73,34 +88,29 @@ whiteSpace = Token.whiteSpace lexer -- parses whitespace
 dot        = Token.dot        lexer
 
 
-parseProgram = parse parseClass "" 
+parseProgram :: String -> Either String CstClass
+parseProgram  = left show . parse parseClass "" 
 
-parseClass :: Parser Class
+parseClass :: Parser CstClass
 parseClass =
     do reserved "class" 
        className <- identifier 
        braces $ do 
-            usage   <- parseUsage
-            fields  <- parseFields
-            methods <- parseMethods
-            return $ Class className usage fields methods 
+            (usage, recursiveUsage) <- parseUsage
+            fields                  <- parseFields
+            methods                 <- parseMethods
+            return $ CstClass className usage recursiveUsage fields methods 
 
-testParse :: Parser (Usage, [Field], [Method])
-testParse = do
-    fields <- parseFields
-    methods <- parseMethods
-    return $ (UsageEnd, fields, methods)
-
-parseMethods :: Parser [Method]
+parseMethods :: Parser [CstMethod]
 parseMethods = parseMethod `manyTill` lookAhead (reserved "}")
 
-parseMethod :: Parser Method
+parseMethod :: Parser CstMethod
 parseMethod =
     do returnType <- identifier
        methodName <- identifier
        (parameterType, parameterName) <- parens parseParameter
        body       <- braces parseExpr
-       return $ Method returnType methodName parameterType parameterName body
+       return $ CstMethod returnType methodName parameterType parameterName body
     where parseParameter :: Parser (String, String)
           parseParameter = 
                 do paramenterType <- identifier
@@ -108,44 +118,41 @@ parseMethod =
                    return (paramenterType, parameterName)
         
 
-parseFields :: Parser [Field]
+parseFields :: Parser [CstField]
 parseFields =  parseField `manyTill` lookAhead (try parseMethod)
 
-parseField :: Parser Field
+parseField :: Parser CstField
 parseField =
     do fieldtype <- identifier
        fieldname <- identifier
-       --semi
-       return $ Field fieldtype fieldname
+       return $ CstField fieldtype fieldname
        
 
-parseUsage :: Parser Usage
-parseUsage = parseRecursiveUsage
+parseUsage :: Parser (CstUsage, [(String, CstUsage)])
+parseUsage = do
+    usage <- parseBranchUsage 
+    recursiveUsages <- brackets (many parseRecursiveUsage)
+    return $ (usage, recursiveUsages)
     
-parseRecursiveUsage :: Parser Usage
-parseRecursiveUsage =   parseRecursiveUsage' 
-                    <|> parseBranchUsage
-
-parseRecursiveUsage' :: Parser Usage
-parseRecursiveUsage' = 
-    do reserved "rec"
-       name <- identifier
-       dot
-       usage <- parseRecursiveUsage
-       return $ UsageRecursive name usage
+parseRecursiveUsage :: Parser (String, CstUsage)
+parseRecursiveUsage = do
+    name <- identifier
+    reserved "="
+    usage <- parseBranchUsage
+    return $ (name, usage)
 
 -- u
-parseBranchUsage :: Parser Usage
+parseBranchUsage :: Parser CstUsage
 parseBranchUsage =   parseEndUsage 
                  <|> braces parseBranchUsage'
                  <|> parseVariableUsage
 
-parseBranchUsage' :: Parser Usage
+parseBranchUsage' :: Parser CstUsage
 parseBranchUsage' = 
     do list <- many1 parseBranchPairUsage
-       return $ UsageBranch list
+       return $ CstUsageBranch list
 
-parseBranchPairUsage :: Parser (String, Usage)
+parseBranchPairUsage :: Parser (String, CstUsage)
 parseBranchPairUsage = 
     do name <- identifier
        semi
@@ -153,35 +160,35 @@ parseBranchPairUsage =
        return $ (name, usage)
 
 -- w
-parseChoiceUsage :: Parser Usage
+parseChoiceUsage :: Parser CstUsage
 parseChoiceUsage =   angles parseChoiceUsage'
                  <|> parseBranchUsage
        
-parseChoiceUsage' :: Parser Usage
+parseChoiceUsage' :: Parser CstUsage
 parseChoiceUsage' = 
     do list <- many1 parseChoicePairUsage
-       return $ UsageChoice list
+       return $ CstUsageChoice list
 
-parseChoicePairUsage :: Parser (String, Usage)
+parseChoicePairUsage :: Parser (String, CstUsage)
 parseChoicePairUsage = 
     do name <- identifier
        colon 
-       usage <- parseUsage
+       usage <- parseBranchUsage 
        return $ (name, usage)
     
-parseVariableUsage :: Parser Usage
+parseVariableUsage :: Parser CstUsage
 parseVariableUsage = 
     do name <- identifier
-       return $ UsageVariable name
+       return $ CstUsageVariable name
 
-parseEndUsage :: Parser Usage
-parseEndUsage = reserved "end" >> return UsageEnd
+parseEndUsage :: Parser CstUsage
+parseEndUsage = reserved "end" >> return CstUsageEnd
 
-parseExpr :: Parser Expression
+parseExpr :: Parser CstExpression
 parseExpr =   parseSeqExpr 
           <|> parseExpr'
 
-parseExpr' :: Parser Expression
+parseExpr' :: Parser CstExpression
 parseExpr' = parens parseExpr
            <|> try parseLabelExpr 
            <|> parseNewExpr
@@ -191,68 +198,61 @@ parseExpr' = parens parseExpr
            <|> parseConstValuesExpr
            <|> parseIdentifierExpr
 
-parseNewExpr :: Parser Expression
+parseNewExpr :: Parser CstExpression
 parseNewExpr =
     do reserved "new"
        var <- identifier
-       return $ ExprNew var
+       return $ CstExprNew var
 
-parseAssignExpr :: Parser Expression
+parseAssignExpr :: Parser CstExpression
 parseAssignExpr = 
     do var <- identifier
        reserved "="
        expr <- parseExpr 
-       return $ ExprAssign var expr 
+       return $ CstExprAssign var expr 
 
-parseSeqExpr :: Parser Expression
+parseSeqExpr :: Parser CstExpression
 parseSeqExpr =
     do list <- (sepBy1 parseExpr' semi)
        return $ unfoldSeqExpr list
 
-unfoldSeqExpr :: [Expression] -> Expression
+unfoldSeqExpr :: [CstExpression] -> CstExpression
 unfoldSeqExpr list = 
     case length list of
         1 -> head list
-        n -> ExprSeq (head list) (unfoldSeqExpr (tail list))
+        n -> CstExprSeq (head list) (unfoldSeqExpr (tail list))
    
        
-parseIfExpr :: Parser Expression
+parseIfExpr :: Parser CstExpression
 parseIfExpr =
     do reserved "if"
        cond <- parens parseExpr
        expr1 <- braces parseExpr
        expr2 <- braces parseExpr
-       return $ ExprIf cond expr1 expr2
+       return $ CstExprIf cond expr1 expr2
 
-parseLabelExpr :: Parser Expression
+parseLabelExpr :: Parser CstExpression
 parseLabelExpr =
     do label <- identifier
        reserved ":"
        expr <- parseExpr
-       return $ ExprLabel label expr
+       return $ CstExprLabel label expr
        
-parseContinueExpr :: Parser Expression
+parseContinueExpr :: Parser CstExpression
 parseContinueExpr =
     do reserved "continue"
        label <- identifier
-       return $ ExprContinue label
+       return $ CstExprContinue label
        
-parseConstValuesExpr :: Parser Expression
+parseConstValuesExpr :: Parser CstExpression
 parseConstValuesExpr =
-        (reserved "true"  >> return (ExprBoolConst True))
-    <|> (reserved "false" >> return (ExprBoolConst False))
-    <|> (reserved "null"  >> return ExprNull)
-    <|> (reserved "unit"  >> return ExprUnit)
+        (reserved "true"  >> return (CstExprBoolConst True))
+    <|> (reserved "false" >> return (CstExprBoolConst False))
+    <|> (reserved "null"  >> return CstExprNull)
+    <|> (reserved "unit"  >> return CstExprUnit)
 
-parseIdentifierExpr :: Parser Expression
+parseIdentifierExpr :: Parser CstExpression
 parseIdentifierExpr = 
     do str <- identifier
-       return $ ExprIdentifier str 
+       return $ CstExprIdentifier str 
 
-
-parseFile :: String -> IO String
-parseFile f = do
-    t <- readFile f
-    return $ case parseProgram t of
-        Right prog -> show $ prog 
-        Left  err  -> show $ err
