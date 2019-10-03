@@ -1,9 +1,9 @@
-module MungoParser( CstClass (CstClass)
-                  , CstUsage
-                  , CstField
-                  , CstMethod   
+module MungoParser( CstClass (CstClass, className, classFields, classMethods)
+                  , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch)
+                  , CstField (CstField, fieldType, fieldName)
+                  , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType)
                   , CstExpression
-                  , parseProgram 
+                  , parseProgram
                   , parseUsage') where
 
 import System.IO
@@ -17,11 +17,12 @@ import Control.Arrow (left)
 
 parseUsage' = parse parseUsage ""
 
-data CstClass = CstClass String 
-                         CstUsage 
-                         [(String, CstUsage)] 
-                         [CstField] 
-                         [CstMethod] 
+data CstClass = CstClass { className :: String
+                         , classUsage :: CstUsage
+                         , classRecUsage :: [(String, CstUsage)]
+                         , classFields :: [CstField]
+                         , classMethods :: [CstMethod]
+                         }
                 deriving (Show)
 
 type CstRecUsage = (String, CstUsage)
@@ -32,10 +33,17 @@ data CstUsage = CstUsageChoice [(String, CstUsage)]
               | CstUsageEnd
                 deriving (Show, Eq)
 
-data CstField = CstField String String 
+data CstField = CstField { fieldType :: String
+                         , fieldName :: String 
+                         } 
                 deriving (Show)
 
-data CstMethod = CstMethod String String String String CstExpression 
+data CstMethod = CstMethod { methodType :: String
+                           , methodName :: String
+                           , parameterType :: String
+                           , parameterName :: String
+                           , methodExpr :: CstExpression
+                           }
                  deriving (Show)
 
 data CstExpression = CstExprNew String

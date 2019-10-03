@@ -1,9 +1,15 @@
 class test {
-    end
+    {test2 ; < a : { foo ; end } b : { foo ; end } > } []
 
-	f m
-	
-	void x(void x) {
-		unit
-	}
+    void m
+    test2 y
+    void m
+    
+    void foo ( void  x) {
+    	unit
+    }
+
+    test2 x ( test2 x ) {
+        unit
+    }
 }
