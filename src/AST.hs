@@ -59,7 +59,7 @@ data Expression = ExprNew ClassName
                 | ExprUnit
                 | ExprSwitch Expression [(String, Expression)]
                 | ExprReturn Expression 
-                | ExprReference String
+                | ExprReference Reference
                 | ExprLitteral String
                 | ExprObjectName String
                   deriving (Show)
