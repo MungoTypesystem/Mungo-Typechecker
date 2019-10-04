@@ -59,8 +59,7 @@ data Expression = ExprNew ClassName
                 | ExprUnit
                 | ExprIdentifier String 
                 | ExprReturn Expression 
-                | ExprParameter String 
-                | ExprFld String
+                | ExprReference String
                 | ExprLitteral String
                 | ExprObjectName String
                   deriving (Show)
