@@ -4,7 +4,7 @@ module MungoParser( CstClass (CstClass, className, classFields, classMethods)
                   , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType)
                   , CstExpression
                   , parseProgram
-                  , parseUsage') where
+                  , testSwitch ) where
 
 import System.IO
 import Control.Monad
@@ -15,7 +15,8 @@ import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 import Control.Arrow (left)
 
-parseUsage' = parse parseUsage ""
+testSwitch = parse parseSwitchExpr ""
+
 
 data CstClass = CstClass { className :: String
                          , classUsage :: CstUsage
@@ -56,6 +57,7 @@ data CstExpression = CstExprNew String
                    | CstExprBoolConst Bool
                    | CstExprNull
                    | CstExprUnit
+                   | CstExprSwitch CstExpression [(String, CstExpression)]
                    | CstExprIdentifier String 
                      deriving (Show)
 
@@ -74,7 +76,8 @@ languageDef =
                                       , "new"
                                       , "rec"
                                       , "class"
-                                      , "end" ]
+                                      , "end"
+                                      , "switch" ]
             , Token.reservedOpNames = ["=", ":"]
             }
 
@@ -201,10 +204,20 @@ parseExpr' = parens parseExpr
            <|> try parseLabelExpr 
            <|> parseNewExpr
            <|> try parseAssignExpr
+           <|> try parseCallExpr
            <|> parseIfExpr
            <|> parseContinueExpr
+           <|> parseSwitchExpr
            <|> parseConstValuesExpr
            <|> parseIdentifierExpr
+
+parseCallExpr :: Parser CstExpression
+parseCallExpr = 
+    do ref <- identifier
+       reservedOp "."
+       fname <- identifier
+       expr <- parens $ parseExpr
+       return $ CstExprCall ref fname expr
 
 parseNewExpr :: Parser CstExpression
 parseNewExpr =
@@ -252,12 +265,23 @@ parseContinueExpr =
        label <- identifier
        return $ CstExprContinue label
        
+parseSwitchExpr :: Parser CstExpression
+parseSwitchExpr =
+    do reserved "switch"
+       cond  <- parens $ parseCallExpr 
+       exprs <- braces $ many parseLabelExpr
+       let exprs' = map (\(CstExprLabel str expr) -> (str, expr)) exprs
+       return $ CstExprSwitch cond exprs'
+
+
 parseConstValuesExpr :: Parser CstExpression
 parseConstValuesExpr =
         (reserved "true"  >> return (CstExprBoolConst True))
     <|> (reserved "false" >> return (CstExprBoolConst False))
     <|> (reserved "null"  >> return CstExprNull)
     <|> (reserved "unit"  >> return CstExprUnit)
+
+
 
 parseIdentifierExpr :: Parser CstExpression
 parseIdentifierExpr = 

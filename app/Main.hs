@@ -4,6 +4,7 @@ import Lib
 import MungoParser
 import TypeSystem
 import SanityCheck
+import AST
 import Data.Either
 import Control.Monad
 import Control.Applicative
@@ -36,3 +37,5 @@ checkSanity classes = do
     let errs = sanityCheck classes
     forM_ errs putStrLn
     return ()
+
+testParseSwitch = parseProgram <$> readFile "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/SwitchExample.mg"
