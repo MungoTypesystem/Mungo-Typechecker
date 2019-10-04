@@ -50,7 +50,7 @@ data Expression = ExprNew ClassName
                 | ExprBoolConst Bool
                 | ExprNull
                 | ExprUnit
-                | ExprIdentifier String 
+                | ExprSwitch Expression [(String, Expression)]
                   deriving (Show)
 
 
