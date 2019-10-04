@@ -1,5 +1,5 @@
 class test {
-    {test2 ; < a : { foo ; end } b : { foo ; end } > } []
+    {test2 ; < a : { foo ; foo } b : { foo ; end } > } []
 
     void m
     test2 y
@@ -10,6 +10,6 @@ class test {
     }
 
     test2 x ( test2 x ) {
-        unit
+        null
     }
 }
