@@ -5,6 +5,7 @@ type FieldName = String
 type MethodName = String
 type ParameterName = String
 type ObjectName = String
+type LabelName = String
 data BaseType = BoolType | VoidType deriving (Show, Eq)
 
 type Typestate = (ClassName, Usage)
