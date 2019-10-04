@@ -6,7 +6,7 @@ type MethodName = String
 type ParameterName = String
 type ObjectName = String
 type LabelName = String
-data BaseType = BoolType | VoidType deriving (Show, Eq)
+data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq)
 
 type Typestate = (ClassName, Usage)
 
@@ -18,6 +18,8 @@ data Type = BType BaseType
           | CType Typestate
           | BotType
           deriving (Show, Eq)
+
+data EnumDef = EnumDef String [LabelName]
 
 data Class = Class {
                      cname    :: ClassName,
