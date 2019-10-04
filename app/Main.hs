@@ -4,6 +4,7 @@ import Lib
 import MungoParser
 import TypeSystem
 import SanityCheck
+import AST
 import Data.Either
 import Control.Monad
 import Control.Applicative

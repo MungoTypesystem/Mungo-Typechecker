@@ -5,24 +5,28 @@ type FieldName = String
 type MethodName = String
 type ParameterName = String
 type ObjectName = String
-data BaseType = BoolType | VoidType deriving (Show, Eq)
+type LabelName = String
+data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq)
 
 type Typestate = (ClassName, Usage)
 
-data ClassDeclType = SimpleClassType ClassName
-                   | ComplexClassType Typestate
-                   deriving (Show, Eq)
-
-data FieldType = ClassFieldType Typestate
+data FieldType = ClassFieldType ClassName
                | BaseFieldType BaseType
                deriving (Show, Eq)
 
 data Type = BType BaseType 
-          | CType ClassDeclType
+          | CType Typestate
+          | BotType
           deriving (Show, Eq)
 
-data Class = Class ClassName Usage [Field] [Method]
-             deriving (Show)
+data EnumDef = EnumDef String [LabelName]
+
+data Class = Class {
+                     cname    :: ClassName,
+                     cusage   :: Usage,
+                     cfields  :: [Field],
+                     cmethods :: [Method]
+                   } deriving (Show)
 
 data Usage = UsageChoice [(String, Usage)]
            | UsageBranch [(String, Usage)]
@@ -30,7 +34,10 @@ data Usage = UsageChoice [(String, Usage)]
            | UsageEnd
              deriving (Show, Eq)
 
-data Field = Field Type FieldName 
+data Field = Field { 
+                     ftype :: FieldType,
+                     fname :: FieldName 
+                   }
              deriving (Show)
 
 data Method = Method Type MethodName Type ParameterName Expression 
@@ -51,6 +58,11 @@ data Expression = ExprNew ClassName
                 | ExprNull
                 | ExprUnit
                 | ExprSwitch Expression [(String, Expression)]
+                | ExprReturn Expression 
+                | ExprParameter String 
+                | ExprFld String
+                | ExprLitteral String
+                | ExprObjectName String
                   deriving (Show)
 
 

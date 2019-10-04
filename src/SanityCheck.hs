@@ -76,6 +76,7 @@ sanityCheckClass (CstClass name usage recusage fields methods) =
     where 
         usageErrs     = sanityCheckUsageRecVariables usage recusage
                         ++ sanityCheckUsageMethodExist usage recusage methods
+                        ++ sanityCheckUsageGoesToEnd usage recusage name
         fieldErrs     = sanityCheckFieldVariables fields
         methodErrs    = sanityCheckMethods methods
         parameterErrs = sanityCheckParameters methods fields
@@ -127,9 +128,12 @@ sanityCheckUsageMethodExist usage recUsage methods =
         usageMethodNames = usageMethods usage
         recUsageMethods = concat $ map usageMethods $ map snd recUsage
 
-sanityCheckUsageGoesToEnd :: CstUsage -> [(String, CstUsage)] -> String -> String
+sanityCheckUsageGoesToEnd :: CstUsage -> [(String, CstUsage)] -> String -> [String]
 sanityCheckUsageGoesToEnd usage recusage className = 
-    head $ sanityCheckUsageGoesToEnd' usage
+   map (++ className) $ sanityCheckUsageGoesToEnd' usage
 
 sanityCheckUsageGoesToEnd' :: CstUsage -> [String]
-sanityCheckUsageGoesToEnd' usage = []
+sanityCheckUsageGoesToEnd' (CstUsageBranch usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
+sanityCheckUsageGoesToEnd' (CstUsageChoice usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
+sanityCheckUsageGoesToEnd' CstUsageEnd = []
+sanityCheckUsageGoesToEnd' _ = ["Usage does not go to end in class "]
