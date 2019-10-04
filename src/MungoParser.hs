@@ -2,7 +2,7 @@ module MungoParser( CstClass (CstClass, className, classFields, classMethods)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch)
                   , CstField (CstField, fieldType, fieldName)
                   , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType)
-                  , CstExpression
+                  , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier)
                   , parseProgram
                   , testSwitch ) where
 
