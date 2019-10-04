@@ -2,7 +2,7 @@ module AstTransformer where
 
 import AST
 import MungoParser
-import Control.Applicative (liftA2, liftA3)
+import Control.Applicative (liftA2, liftA3, (<|>))
 
 
 -- helper data
@@ -47,7 +47,7 @@ convertExpression methodInfo exp = case exp of
     (CstExprNull)                  -> convertNull
     (CstExprUnit)                  -> convertUnit
     (CstExprSwitch cond matches)   -> convertSwitch methodInfo cond matches
-    (CstExprIdentifier str)        -> Left $ "wtf is dis" ++ str
+    (CstExprIdentifier str)        -> convertIdentifier methodInfo str
 
 convertNew :: String -> Either String Expression
 convertNew = Right . ExprNew
@@ -58,7 +58,7 @@ convertAssign methodInfo fieldName expr =
 
 convertCall :: MethodInfo -> String -> String -> CstExpression -> Either String Expression
 convertCall methodInfo reference method expr = 
-    ExprCall ref method <$> convertExpression methodInfo expr
+    ref >>= \ref' -> ExprCall ref' method <$> convertExpression methodInfo expr
     where ref = convertReference methodInfo method
 
 convertSeq :: MethodInfo -> CstExpression -> CstExpression -> Either String Expression
@@ -99,10 +99,30 @@ convertSwitch methodInfo cond matches =
           matches' = map (\(ExprLabel n e) -> (n, e)) <$> matches''
 
 convertIdentifier :: MethodInfo -> String -> Either String Expression
+convertIdentifier methodInfo str = parameter' <|> field' <|> literal'
+    where parameter' = ExprReference <$> convertToParameter methodInfo str
+          field'     = ExprReference <$> convertToField methodInfo str
+          literal'   = convertToLiteral methodInfo str
     
-convertReference :: MethodInfo -> String -> Reference
-convertReference methodInfo name 
-    | name == pName methodInfo = RefParameter name
-    | otherwise                = RefField name
+    
+
+convertToParameter :: MethodInfo -> String -> Either String Reference 
+convertToParameter methodInfo name 
+    | name == pName methodInfo = Right $ RefParameter name
+    | otherwise                = Left $ "paramenter not found " ++ name
+
+convertToField :: MethodInfo -> String -> Either String Reference 
+convertToField methodInfo name
+    | name `elem` fNames methodInfo = Right $ RefParameter name
+    | otherwise                     = Left $ "field not found " ++ name
+
+convertToLiteral :: MethodInfo -> String -> Either String Expression
+convertToLiteral methodInfo name = 
+    Left "literal not found"
+
+convertReference :: MethodInfo -> String -> Either String Reference
+convertReference methodInfo name =   convertToParameter methodInfo name
+                                 <|> convertToField methodInfo name
+                                 <|> Left (concat ["unable to convert ", name, " to reference"])
                         
 
