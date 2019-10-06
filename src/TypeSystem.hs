@@ -35,6 +35,13 @@ assert False err = fail err
 
 assert' True  _   res = res
 assert' False err res = fail err
+
+transitions UsageEnd = []
+transitions (UsageBranch lst) = lst
+transitions (UsageChoice lst) = lst
+transitions (UsageRecursive str u) = []
+
+filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
  
 lin :: Type -> Bool
 lin (CType (cname, usage)) = usage /= UsageEnd
@@ -48,6 +55,17 @@ findEnum ((EnumDef name litterals):es) litteral = if (any (== litteral) litteral
 getField cls classname fieldname = 
     let clazz = head $ filter (\c -> cname c == classname) cls in
         ftype . head $ filter (\f -> fname f == fieldname) $ cfields clazz
+
+getMethod cls classname methodname = 
+    let clazz = head $ filter (\c -> cname c == classname) cls in
+        head $ filter (\m -> mname m == methodname) $ cmethods clazz
+
+lookupLambda :: ObjectFieldTypeEnv -> ObjectName -> FieldName -> Maybe Type
+lookupLambda lambda name field = do
+    (c, flds) <- envLookup lambda name
+    envLookup flds field
+
+
 
 maybeToEither :: String -> Maybe a -> Either String a
 maybeToEither err Nothing  = Left err
@@ -82,7 +100,7 @@ without env name = filter ((/= name) . fst) env
 replaceFieldType :: FieldTypeEnv -> String -> Type -> FieldTypeEnv
 replaceFieldType env name ntype = map (\(n, t) -> if n == name then (n, ntype) else (n, t)) env
 
-updateLambda :: ObjectFieldTypeEnv -> FieldName -> FieldName -> Type -> ObjectFieldTypeEnv
+updateLambda :: ObjectFieldTypeEnv -> ObjectName -> FieldName -> Type -> ObjectFieldTypeEnv
 updateLambda lambda oname field ntype = 
     let (c, env) = fromJust $ envLookup lambda oname
         newEnv = replaceFieldType env field ntype
@@ -104,18 +122,19 @@ findCls (cls@(Class cn _ _ _):clss) name = if cn == name then Just cls else find
 
 checkExpression :: ExprCheck
 checkExpression cls enums lambda delta omega e =  
-                                      checkTNew  cls enums lambda delta omega e
-                                  <|> checkTFld  cls enums lambda delta omega e
-                                  <|> checkTUnit cls enums lambda delta omega e
-                                  <|> checkTBot  cls enums lambda delta omega e
-                                  <|> checkTSeq  cls enums lambda delta omega e
-                                  <|> checkTBool cls enums lambda delta omega e
-                                  <|> checkTIf   cls enums lambda delta omega e
-                                  <|> checkTRet  cls enums lambda delta omega e
-                                  <|> checkTObj  cls enums lambda delta omega e
-                                  <|> checkTLab  cls enums lambda delta omega e
-                                  <|> checkTCon  cls enums lambda delta omega e
-                                  <|> checkTLit  cls enums lambda delta omega e
+                                      checkTNew   cls enums lambda delta omega e
+                                  <|> checkTFld   cls enums lambda delta omega e
+                                  <|> checkTUnit  cls enums lambda delta omega e
+                                  <|> checkTBot   cls enums lambda delta omega e
+                                  <|> checkTSeq   cls enums lambda delta omega e
+                                  <|> checkTBool  cls enums lambda delta omega e
+                                  <|> checkTIf    cls enums lambda delta omega e
+                                  <|> checkTRet   cls enums lambda delta omega e
+                                  <|> checkTObj   cls enums lambda delta omega e
+                                  <|> checkTLab   cls enums lambda delta omega e
+                                  <|> checkTCon   cls enums lambda delta omega e
+                                  <|> checkTLit   cls enums lambda delta omega e
+                                  <|> checkTCallF cls enums lambda delta omega e
 
 checkTNew cls enums lambda delta omega (ExprNew cn) = 
     let foundCls = findCls cls cn in
@@ -250,6 +269,7 @@ checkTCon cls enums lambda delta omega (ExprContinue label) = do
             Just $ Right (BType VoidType, lambda, delta, omega)
 checkTCon cls enums lambda delta omega _ = Nothing
 
+checkTLit :: ExprCheck
 checkTLit cls enums lambda delta omega (ExprLitteral litteral) = do
     let enum = findEnum enums litteral
     case enum of 
@@ -257,11 +277,63 @@ checkTLit cls enums lambda delta omega (ExprLitteral litteral) = do
         Just e -> Just $ Right (BType (EnumType e), lambda, delta, omega)
 checkTLit cls enums lambda delta omega _ = Nothing
 
--- TCallF
+checkTFldRef :: ExprCheck
+checkTFldRef cls enums lambda delta omega e@(ExprReference (RefParameter name)) = 
+    Just $ checkTFldRef' cls enums lambda delta omega e
+checkTFldRef cls enums lambda delta omega _ = Nothing
+
+checkTFldRef' :: ExprCheckInternal
+checkTFldRef' cls enums lambda delta omega (ExprReference (RefParameter name)) = do
+    let lstEl = lastDelta delta
+    (o, s) <- fromMaybe (Left "Wrong stack size in TFldRef") $ Right <$> lstEl
+    let par = envLookup lambda o
+    ((c, t), envTf) <- fromMaybe (Left "Could not find variable in lambda") $ Right <$> par
+    if lin t then
+        Right (t, (updateLambda lambda o name BotType), delta, omega)
+    else 
+        Right (t, lambda, delta, omega) 
+
+checkTParRef :: ExprCheck
+checkTParRef cls enums lambda delta omega e@(ExprReference (RefParameter name)) = 
+    Just $ checkTParRef' cls enums lambda delta omega e
+checkTParRef cls enums lambda delta omega _ = Nothing
+
+checkTParRef' :: ExprCheckInternal
+checkTParRef' cls enums lambda delta omega e@(ExprReference (RefParameter name)) = do
+    let lstEl = lastDelta delta
+    (o, (x, t)) <- fromMaybe (Left "Wrong stack size in TParRef") $ Right <$> lstEl
+    if lin t then
+        Right (t, lambda, (initDelta delta) `with` (o, (x, BotType)), omega)
+    else
+        Right (t, lambda, delta, omega)
+
+
+checkTCallF :: ExprCheck
+checkTCallF cls enums lambda delta omega e@(ExprCall (RefField name) mthd exp) =
+    Just $ checkTCallF' cls enums lambda delta omega e
+checkTCallF cls enums lambda delta omega _ = Nothing
+
+checkTCallF' :: ExprCheckInternal
+checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
+    -- TODO: Figure out if we should include multiple transitions here
+    (t, lambda', delta', omega') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
+    let lstEl = lastDelta delta
+    let lstEl' = lastDelta delta'
+    (o, s) <- fromMaybe (Left "Wrong stack size in TCallF") $ Right <$> lstEl
+    (o', s') <- fromMaybe (Left "Wrong stack size in TCallF") $ Right <$> lstEl'
+    assert' (o == o') "Object names does not match in TCallF" $ do
+    ftype <- fromMaybe (Left "Could not find field in TCallF") $ Right <$> lookupLambda lambda' o f
+    case ftype of 
+        (CType (c, usage)) -> do
+            let resultingUsages = filterUsages m $ transitions usage
+            assert' (length resultingUsages > 0) "No transitions available for method call" $ do
+            let w =  head resultingUsages
+            let (Method tret _ ptype _ _) = getMethod cls c m
+            assert' (t == ptype) "Wrong parameter type in TCallF" $ do
+            Right $ (tret, (updateLambda lambda' o f (CType (c, w))), delta', omega')
+        _ -> Left "Invalid type for field"
+    
+
 -- TCallP
 -- TSwP
 -- TSwF
--- TLinPar
--- TNoLPar
--- TLinFld
--- TNoLFld

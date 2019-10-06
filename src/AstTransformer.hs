@@ -98,7 +98,7 @@ convertSwitch methodInfo cond matches =
           matches'' = sequence $ map (uncurry (convertLabel methodInfo)) matches
           matches' = map (\(ExprLabel n e) -> (n, e)) <$> matches''
 
-convertIdentifier :: MethodInfo -> String -> Either String Expression
+--convertIdentifier :: MethodInfo -> String -> Either String Expression
     
 convertReference :: MethodInfo -> String -> Reference
 convertReference methodInfo name 

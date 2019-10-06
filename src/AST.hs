@@ -40,7 +40,13 @@ data Field = Field {
                    }
              deriving (Show)
 
-data Method = Method Type MethodName Type ParameterName Expression 
+data Method = Method {
+                    rettype :: Type, 
+                    mname :: MethodName,
+                    partype :: Type,
+                    parname :: ParameterName,
+                    mexpr :: Expression
+                    }
               deriving (Show)
 
 data Reference = RefParameter ParameterName
