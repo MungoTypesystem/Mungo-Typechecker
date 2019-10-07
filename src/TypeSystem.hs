@@ -44,7 +44,7 @@ transitions' :: [(String, UsageImpl)] -> UsageImpl ->  [(String, UsageImpl)]
 transitions' recU UsageEnd             = []
 transitions' recU (UsageBranch lst)    = lst
 transitions' recU (UsageChoice lst)    = lst
-transitions' recU (UsageRecursive str) = 
+transitions' recU (UsageVariable str) = 
    fromMaybe [] $ transitions' recU <$> (recU `envLookup` str)
 
 filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
