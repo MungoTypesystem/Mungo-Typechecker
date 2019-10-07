@@ -142,6 +142,7 @@ checkExpression cls enums lambda delta omega e =
                                   <|> checkTLit   cls enums lambda delta omega e
                                   <|> checkTCallF cls enums lambda delta omega e
                                   <|> checkTCallP cls enums lambda delta omega e
+                                  <|> checkTSwP   cls enums lambda delta omega e
 
 checkTNew cls enums lambda delta omega (ExprNew cn) = 
     let foundCls = findCls cls cn in
@@ -365,6 +366,19 @@ checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
             Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, w)))), omega')
         _ -> Left "Invalid type for field"
 
+checkTSwP :: ExprCheck
+checkTSwP cls enums lambda delta omega e@(ExprSwitch (RefParameter _) _ _) = 
+    Just $ checkTSwP' cls enums lambda delta omega e
+checkTSwP cls enums lambda delta omega _ = Nothing
+
+checkTSwP' :: ExprCheckInternal
+checkTSwP' cls enums lambda delta omega (ExprSwitch (RefParameter x) e _) = do
+    (t, lambda'', delta'', omega'') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
+    let lstEl = lastDelta delta
+    let lstEl' = lastDelta delta'
+    (o, s) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl
+    (o', (x', t')) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
+    assert' (o == o') "Objects does not match in TSwP" $ do
 
 -- TSwP
 -- TSwF
