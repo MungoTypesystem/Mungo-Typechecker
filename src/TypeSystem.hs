@@ -4,6 +4,7 @@ import MungoParser
 import AST
 import Data.Maybe
 import Control.Applicative
+import Control.Arrow (second)
 
 -- EnvTF
 type FieldTypeEnv = [(FieldName, Type)] 
@@ -14,7 +15,7 @@ type ObjectFieldTypeEnv = [(ObjectName, ((ClassName, Type), FieldTypeEnv))]
 -- EnvTO
 type ObjectTypeEnv = [(ObjectName, Typestate)]
 
--- EnvTS
+-- EnvT, EqS
 type ParameterStackTypeEnv = [(ObjectName, (ParameterName, Type))]
 
 -- Δ
@@ -36,15 +37,23 @@ assert False err = fail err
 assert' True  _   res = res
 assert' False err res = fail err
 
-transitions UsageEnd = []
-transitions (UsageBranch lst) = lst
-transitions (UsageChoice lst) = lst
-transitions (UsageRecursive str u) = []
+transitions :: Usage -> [(String, Usage)]
+transitions u = map toUsage $ transitions' (recursiveUsages u) (current u) 
+    where recursives = recursiveUsages u
+          toUsage :: (String, UsageImpl) -> (String, Usage)
+          toUsage = second ((flip Usage) recursives)
+
+transitions' :: [(String, UsageImpl)] -> UsageImpl ->  [(String, UsageImpl)]
+transitions' recU UsageEnd             = []
+transitions' recU (UsageBranch lst)    = lst
+transitions' recU (UsageChoice lst)    = lst
+transitions' recU (UsageRecursive str) = 
+   fromMaybe [] $ transitions' recU <$> (recU `envLookup` str)
 
 filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
  
 lin :: Type -> Bool
-lin (CType (cname, usage)) = usage /= UsageEnd
+lin (CType (cname, usage)) = current usage /= UsageEnd
 lin _ = False
 
 

@@ -28,13 +28,13 @@ data Class = Class {
                      cmethods :: [Method]
                    } deriving (Show)
 
-data Usage = { current :: UsageImpl
-             , recursiveUsage :: [(String, UsageImpl)]
-             } deriving (Show)
+data Usage = Usage { current :: UsageImpl
+                   , recursiveUsages :: [(String, UsageImpl)]
+                   } deriving (Show, Eq)
 
 data UsageImpl = UsageChoice [(String, UsageImpl)]
                | UsageBranch [(String, UsageImpl)]
-               | UsageRecursive String UsageImpl
+               | UsageRecursive String
                | UsageEnd
                  deriving (Show, Eq)
 
