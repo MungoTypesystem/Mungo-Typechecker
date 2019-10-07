@@ -135,6 +135,7 @@ checkExpression cls enums lambda delta omega e =
                                   <|> checkTCon   cls enums lambda delta omega e
                                   <|> checkTLit   cls enums lambda delta omega e
                                   <|> checkTCallF cls enums lambda delta omega e
+                                  <|> checkTCallP cls enums lambda delta omega e
 
 checkTNew cls enums lambda delta omega (ExprNew cn) = 
     let foundCls = findCls cls cn in
@@ -332,8 +333,32 @@ checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
             assert' (t == ptype) "Wrong parameter type in TCallF" $ do
             Right $ (tret, (updateLambda lambda' o f (CType (c, w))), delta', omega')
         _ -> Left "Invalid type for field"
-    
 
--- TCallP
+checkTCallP :: ExprCheck
+checkTCallP cls enums lambda delta omega e@(ExprCall (RefParameter name) mthd exp) =
+    Just $ checkTCallP' cls enums lambda delta omega e
+checkTCallP cls enums lambda delta omega _ = Nothing
+
+checkTCallP' :: ExprCheckInternal
+checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
+    -- TODO: Figure out if we should include multiple transitions here
+    (t, lambda', delta', omega') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
+    let lstEl = lastDelta delta
+    let lstEl' = lastDelta delta'
+    (o, s) <- fromMaybe (Left "Wrong stack size in TCallP") $ Right <$> lstEl
+    (o', (x', t')) <- fromMaybe (Left "Wrong stack size in TCallP") $ Right <$> lstEl'
+    assert' (o == o') "Object names does not match in TCallP" $ do
+    assert' (x == x') "Parameter names does not match in TCallP" $ do
+    case t' of 
+        (CType (c, usage)) -> do
+            let resultingUsages = filterUsages m $ transitions usage
+            assert' (length resultingUsages > 0) "No transitions available for method call" $ do
+            let w =  head resultingUsages
+            let (Method tret _ ptype _ _) = getMethod cls c m
+            assert' (t == ptype) "Wrong parameter type in TCallP" $ do
+            Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, w)))), omega')
+        _ -> Left "Invalid type for field"
+
+
 -- TSwP
 -- TSwF
