@@ -13,7 +13,7 @@ data GlobalDefinitions = GlobalDefinitions { cNames :: [String]
                                            , enumValues :: [String]
                                            }
 
-data BuilderData = BuilderData [ClassInfo] 
+type BuilderData = [ClassInfo] 
 
 data ClassInfo = ClassInfo { cName  :: String
                            , mInfo :: [MethodInfo]
@@ -27,7 +27,9 @@ data MethodInfo = MethodInfo { mName  :: String
 convertProgram :: CstProgram -> Either String ([Class], [EnumDef])
 convertProgram program = Left $ "the frick"
    where  enums   = map convertEnums $ progEnums program
-          classes = map (convertClass globalDefinitions) $ progClasses program 
+          classes = map (convertClass globalDefinitions classData) $ progClasses program 
+
+          classData = createBuilderData (progClasses program)
 
           globalDefinitions = GlobalDefinitions classNames enumNames enumValues
           classNames = map className $ progClasses program
@@ -35,7 +37,7 @@ convertProgram program = Left $ "the frick"
           enumValues = concat . map enumLabels $ progEnums program
 
 createBuilderData :: [CstClass] -> BuilderData
-createBuilderData = BuilderData . map createClassInfo 
+createBuilderData = map createClassInfo 
 
 createClassInfo :: CstClass -> ClassInfo
 createClassInfo cls =
@@ -52,11 +54,49 @@ createMethodInfo fields method =
 convertEnums :: CstEnum -> EnumDef
 convertEnums cstEnum = EnumDef (enumName cstEnum) (enumLabels cstEnum)
 
-convertClass :: GlobalDefinitions -> CstClass -> Class 
-convertClass definitions cls = error "not implemeneted"
-    where usage     = convertUsage (classUsage cls)
-          classInfo = createClassInfo cls
+convertClass :: GlobalDefinitions -> BuilderData -> CstClass -> Class 
+convertClass global classesData cls = error "not implemeneted"
+    where usage           = convertUsage (classUsage cls)
+          recusage        = convertUsageList (classRecUsage cls)
+          classInfo       = createClassInfo cls
+          fields          = map (convertField global) (classFields cls)
+          classData       = filter ((== className cls). cName) classesData
+          convertedMethod = map (convertMethod global (head classData)) (classMethods cls)
           
+convertMethod :: GlobalDefinitions -> ClassInfo -> CstMethod -> Either String Class
+convertMethod global method classInfo = 
+    error "tmp"
+    where l = 5
+    
+    
+convertType :: GlobalDefinitions -> String -> Either String Type 
+convertType global typeStr 
+    | typeStr == "void"                  = Right $ BType VoidType
+    | typeStr == "bool"                  = Right $ BType BoolType 
+    | typeStr `elem` (enumNames global)  = Right $ BType $ EnumType typeStr
+    | typeStr `elem` (cNames global) = Right $ CType $ error "reee"
+
+convertField :: GlobalDefinitions -> CstField -> Either String Field
+convertField global field = liftA2 Field fieldType' (return (fieldName field))
+    where fieldType' = convertFieldType global (fieldType field)
+
+convertFieldType :: GlobalDefinitions -> String -> Either String FieldType
+convertFieldType global field =   BaseFieldType <$> convertBaseType global field
+                              <|> convertClassTypeField global field
+
+convertClassTypeField :: GlobalDefinitions -> String -> Either String FieldType
+convertClassTypeField global name
+    | name `elem` (cNames global) = Right $ ClassFieldType name
+    | otherwise                   = Left $ "Unknown field " ++ name
+
+
+convertBaseType :: GlobalDefinitions -> String -> Either String BaseType
+convertBaseType global field 
+    | field == "void"                 = Right $ VoidType
+    | field == "bool"                 = Right $ BoolType
+    | field `elem` (enumNames global) = Right $ EnumType field
+    | otherwise                       = Left "cannot convert to base type"
+        
 
 convertUsage :: CstUsage -> UsageImpl
 convertUsage (CstUsageChoice xs)  = UsageChoice $ convertUsageList xs
@@ -66,7 +106,6 @@ convertUsage (CstUsageEnd)        = UsageEnd
 
 convertUsageList :: [(String, CstUsage)] -> [(String, UsageImpl)]
 convertUsageList = map (second convertUsage) 
-
 
 convertExpression :: GlobalDefinitions -> MethodInfo -> CstExpression -> Either String Expression
 convertExpression global methodInfo exp = case exp of
@@ -161,4 +200,3 @@ convertReference global methodInfo name =   convertToParameter global methodInfo
                                         <|> convertToField global methodInfo name
                                         <|> Left (concat ["unable to convert ", name, " to reference"])
                         
-
