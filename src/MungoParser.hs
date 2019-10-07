@@ -1,6 +1,7 @@
 module MungoParser( CstProgram (progClasses, progEnums)
                   , CstClass (CstClass, className, classFields, classMethods)
-                  , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch)
+                  , CstEnum (CstEnum, enumName, enumLabels)
+                  , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch, CstUsageVariable)
                   , CstField (CstField, fieldType, fieldName)
                   , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType)
                   , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier)
@@ -36,7 +37,6 @@ data CstClass = CstClass { className     :: String
                          }
                 deriving (Show)
 
-type CstRecUsage = (String, CstUsage)
 
 data CstUsage = CstUsageChoice [(String, CstUsage)]
               | CstUsageBranch [(String, CstUsage)]
