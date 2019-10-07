@@ -28,11 +28,15 @@ data Class = Class {
                      cmethods :: [Method]
                    } deriving (Show)
 
-data Usage = UsageChoice [(String, Usage)]
-           | UsageBranch [(String, Usage)]
-           | UsageRecursive String Usage
-           | UsageEnd
-             deriving (Show, Eq)
+data Usage = { current :: UsageImpl
+             , recursiveUsage :: [(String, UsageImpl)]
+             } deriving (Show)
+
+data UsageImpl = UsageChoice [(String, UsageImpl)]
+               | UsageBranch [(String, UsageImpl)]
+               | UsageRecursive String UsageImpl
+               | UsageEnd
+                 deriving (Show, Eq)
 
 data Field = Field { 
                      ftype :: FieldType,
