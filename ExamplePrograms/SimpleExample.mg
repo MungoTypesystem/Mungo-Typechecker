@@ -1,11 +1,13 @@
 enum asd { one two three }
 
+enum asd { one four }
+
 class test {
     {test2 ; < a : { foo ; foo } b : { foo ; end } > } []
 
     void m
     test2 y
-    void m
+    asd n
     
     void foo ( void  x) {
     	unit
