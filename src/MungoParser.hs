@@ -23,7 +23,9 @@ data CstProgram = CstProgram { progEnums   :: [CstEnum]
                              }
                   deriving (Show)
 
-data CstEnum = CstEnum String [String]
+data CstEnum = CstEnum { enumName :: String 
+                       , enumLabels :: [String]
+                       }
                deriving (Show)
 
 data CstClass = CstClass { className     :: String
