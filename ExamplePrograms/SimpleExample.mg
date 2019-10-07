@@ -1,3 +1,5 @@
+enum asd { one two three }
+
 class test {
     {test2 ; < a : { foo ; foo } b : { foo ; end } > } []
 

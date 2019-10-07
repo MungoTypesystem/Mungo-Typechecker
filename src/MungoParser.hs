@@ -1,4 +1,5 @@
-module MungoParser( CstClass (CstClass, className, classFields, classMethods)
+module MungoParser( CstProgram (progClasses, progEnums)
+                  , CstClass (CstClass, className, classFields, classMethods)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch)
                   , CstField (CstField, fieldType, fieldName)
                   , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType)
@@ -17,12 +18,19 @@ import Control.Arrow (left)
 
 testSwitch = parse parseSwitchExpr ""
 
+data CstProgram = CstProgram { progEnums   :: [CstEnum]
+                             , progClasses :: [CstClass] 
+                             }
+                  deriving (Show)
 
-data CstClass = CstClass { className :: String
-                         , classUsage :: CstUsage
+data CstEnum = CstEnum String [String]
+               deriving (Show)
+
+data CstClass = CstClass { className     :: String
+                         , classUsage    :: CstUsage
                          , classRecUsage :: [(String, CstUsage)]
-                         , classFields :: [CstField]
-                         , classMethods :: [CstMethod]
+                         , classFields   :: [CstField]
+                         , classMethods  :: [CstMethod]
                          }
                 deriving (Show)
 
@@ -39,11 +47,11 @@ data CstField = CstField { fieldType :: String
                          } 
                 deriving (Show)
 
-data CstMethod = CstMethod { methodType :: String
-                           , methodName :: String
+data CstMethod = CstMethod { methodType    :: String
+                           , methodName    :: String
                            , parameterType :: String
                            , parameterName :: String
-                           , methodExpr :: CstExpression
+                           , methodExpr    :: CstExpression
                            }
                  deriving (Show)
 
@@ -77,7 +85,8 @@ languageDef =
                                       , "rec"
                                       , "class"
                                       , "end"
-                                      , "switch" ]
+                                      , "switch"
+                                      , "enum" ]
             , Token.reservedOpNames = ["=", ":"]
             }
 
@@ -87,8 +96,8 @@ identifier = Token.identifier lexer -- parses an identifier
 reserved   = Token.reserved   lexer -- parses a reserved name
 reservedOp = Token.reservedOp lexer -- parses an operator
 angles     = Token.angles     lexer -- 
-brackets   = Token.brackets   lexer -- 
-braces     = Token.braces     lexer -- 
+brackets   = Token.brackets   lexer -- []
+braces     = Token.braces     lexer -- {}
 parens     = Token.parens     lexer -- parses surrounding parenthesis:
                                     --   parens p
                                     -- takes care of the parenthesis and
@@ -98,9 +107,28 @@ colon      = Token.colon      lexer -- parses a semicolon
 whiteSpace = Token.whiteSpace lexer -- parses whitespace
 dot        = Token.dot        lexer
 
+parseProgram :: String -> Either String CstProgram
+parseProgram = left show . parse parseProgram' ""
 
-parseProgram :: String -> Either String CstClass
-parseProgram  = left show . parse parseClass "" 
+parseProgram' :: Parser CstProgram
+parseProgram' = 
+  do enums   <- many parseEnum
+     classes <- many parseClass
+     return $ CstProgram enums classes
+
+
+parseEnum :: Parser CstEnum
+parseEnum =
+  do reserved "enum"
+     enumName <- identifier
+     braces $ do
+            labels <- (many1 parseLabel)
+            return $ CstEnum enumName labels
+
+parseLabel :: Parser String
+parseLabel =
+  do label <- identifier
+     return label
 
 parseClass :: Parser CstClass
 parseClass =

@@ -24,13 +24,15 @@ testFile2 = "../Mungo-Inference/ExamplePrograms/UseAnotherClassExample.mg"
 readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1, testFile2]
 
 check = do
-    classes <- readFiles
-    let ll = lefts classes
-    let rr = rights classes
+    program <- readFiles
+    putStrLn $ show program
+    --let cls = progClasses program
+    --let ll = lefts cls
+    --let rr = rights cls
 
-    if not (null ll) 
-        then forM_ ll putStrLn
-        else checkSanity rr
+    --if not (null ll) 
+    --    then forM_ ll putStrLn
+    --    else checkSanity rr
 
 checkSanity :: [CstClass] -> IO ()
 checkSanity classes = do
