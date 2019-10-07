@@ -27,9 +27,6 @@ type LabelEnv = [(LabelName, (ObjectFieldTypeEnv, Delta))]
 type ExprCheck = [Class] -> [EnumDef] -> ObjectFieldTypeEnv -> Delta -> LabelEnv -> Expression -> Maybe (Either String (Type, ObjectFieldTypeEnv, Delta, LabelEnv))
 type ExprCheckInternal = [Class] -> [EnumDef] -> ObjectFieldTypeEnv -> Delta -> LabelEnv -> Expression -> Either String (Type, ObjectFieldTypeEnv, Delta, LabelEnv)
 
---fieldTypeToType :: FieldType -> Type
---fieldTypeToType (BaseFieldType b) = (BType b)
---fieldTypeToType (ClassFieldType ts) = (CType (ComplexClassType ts))
 
 assert True _ = pure ()
 assert False err = fail err
