@@ -5,6 +5,7 @@ import AST
 import Data.Maybe
 import Control.Applicative
 import Control.Arrow (second)
+import Data.List (sort)
 
 -- EnvTF
 type FieldTypeEnv = [(FieldName, Type)] 
@@ -366,6 +367,32 @@ checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
             Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, w)))), omega')
         _ -> Left "Invalid type for field"
 
+lookupLabels :: Type -> [EnumDef] -> Maybe [String]
+lookupLabels (BType (EnumType name)) def = lookupLabels' name def
+lookupLabels _                       def = Nothing
+
+lookupLabels' :: String -> [EnumDef] -> Maybe [String] 
+lookupLabels' name ((EnumDef enumName lbls):xs) = if name == enumName 
+                                                        then Just lbls 
+                                                        else lookupLabels' name xs
+lookupLabels' name [] = Nothing
+
+availableChoices :: Usage -> Either String [String]
+availableChoices usage = availableChoices' (current usage) (recursiveUsages usage) []
+    where availableChoices' :: UsageImpl -> [(String, UsageImpl)] -> [String] -> Either String [String]
+          availableChoices' (UsageChoice l)   _   _        = Right $ map fst l
+          availableChoices' (UsageBranch l)   _   _        = Left "Branch usage is not a choice"
+          availableChoices' (UsageEnd)        _   _        = Left "End usage is not a choice"
+          availableChoices' (UsageVariable r) rec lookedAt = 
+                if r `elem` lookedAt
+                    then Left "infinite transition found"
+                    else ("unable to find recursive variable" ~~ envLookup rec r) >>= \usage ->
+                         availableChoices' usage rec (r:lookedAt)
+
+findUsage :: Type -> Maybe Usage
+findUsage (CType (name, usage)) = Just usage 
+findUsage _                     = Nothing
+
 checkTSwP :: ExprCheck
 checkTSwP cls enums lambda delta omega e@(ExprSwitch (RefParameter _) _ _) = 
     Just $ checkTSwP' cls enums lambda delta omega e
@@ -375,10 +402,18 @@ checkTSwP' :: ExprCheckInternal
 checkTSwP' cls enums lambda delta omega (ExprSwitch (RefParameter x) e _) = do
     (t, lambda'', delta'', omega'') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
     let lstEl = lastDelta delta
-    let lstEl' = lastDelta delta'
+    let lstEl' = lastDelta delta''
     (o, s) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl
     (o', (x', t')) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
     assert' (o == o') "Objects does not match in TSwP" $ do
+    lbls <- ("failed to lookup enum" ~~  lookupLabels t enums)
+    usage <- "must be a classtype" ~~ findUsage t'
+    transitions <- availableChoices usage
+    assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
+    -- todo check all transitions end up in the same state 
+    error "todo"
+        
+        
 
 -- TSwP
 -- TSwF
