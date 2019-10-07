@@ -67,7 +67,7 @@ data Expression = ExprNew ClassName
                 | ExprBoolConst Bool
                 | ExprNull
                 | ExprUnit
-                | ExprSwitch Expression [(String, Expression)]
+                | ExprSwitch Reference Expression [(String, Expression)]
                 | ExprReturn Expression 
                 | ExprReference Reference
                 | ExprLitteral String
