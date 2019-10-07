@@ -25,18 +25,16 @@ readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1, tes
 
 check = do
     program <- readFiles
-    putStrLn $ show program
-    --let cls = progClasses program
-    --let ll = lefts cls
-    --let rr = rights cls
+    let ll = lefts program
+    let rr = rights program
 
-    --if not (null ll) 
-    --    then forM_ ll putStrLn
-    --    else checkSanity rr
+    if not (null ll) 
+        then forM_ ll putStrLn
+        else checkSanity $ rr
 
-checkSanity :: [CstClass] -> IO ()
-checkSanity classes = do
-    let errs = sanityCheck classes
+checkSanity :: [CstProgram] -> IO ()
+checkSanity program = do
+    let errs = sanityCheck program
     forM_ errs putStrLn
     return ()
 

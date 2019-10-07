@@ -8,31 +8,42 @@ import MungoParser
 duplicates :: [String] -> [String]
 duplicates = map head . filter ((> 1) . length) . group
 
-getAllTypes :: [CstClass] -> [String]
-getAllTypes classes = (map className classes) 
-                    ++ ["void", "bool"] 
+getAllTypes :: [CstClass] -> [CstEnum] -> [String]
+getAllTypes classes enums = (map className classes) 
+                    ++ ["void", "bool"]
+                    ++ (map enumName enums)
 
 -- PROGRAM CHECKING
     -- Valid field types
     -- Valid parameter types
     -- Valid return types
-    -- Duplicate class names
+    -- Duplicate class and enum names
     -- Sanity check class
-sanityCheck :: [CstClass] -> [String]
-sanityCheck classes =
-    classNameErrs ++ fieldTypeErrs ++ methodTypeErrs ++ classErrs
+    -- Unique literals
+sanityCheck :: [CstProgram] -> [String]
+sanityCheck programs = 
+    (sanityCheckEnums programs)
+    ++ (sanityCheckPrograms programs)
+
+sanityCheckDuplicateNames :: [CstClass] -> [CstEnum] -> [String]
+sanityCheckDuplicateNames classes enums =
+    map (++ " duplicated class/enum name") (duplicates names)
     where
-        supportedTypes = getAllTypes classes
-        classNameErrs = sanityCheckClassNames classes
+        classNames = sort $ map className classes
+        enumNames = sort $ map enumName enums
+        names = classNames ++ enumNames
+
+sanityCheckPrograms :: [CstProgram] -> [String]
+sanityCheckPrograms programs =
+    duplicateNameErrs ++ fieldTypeErrs ++ methodTypeErrs ++ classErrs
+    where
+        classes = concat $ map progClasses programs
+        enums = concat $ map progEnums programs
+        supportedTypes = getAllTypes classes enums
+        duplicateNameErrs = sanityCheckDuplicateNames classes enums
         fieldTypeErrs = concat $ map (`sanityCheckFieldTypes` supportedTypes) $ map classFields classes
         methodTypeErrs = concat $ map (`sanityCheckMethodTypes` supportedTypes) $ map classMethods classes
         classErrs = concat $ map sanityCheckClass classes
-
-sanityCheckClassNames :: [CstClass] -> [String]
-sanityCheckClassNames classes =
-    map (++ " duplicated class name") (duplicates classNames)
-    where
-        classNames = sort $ map className classes
 
 -- UsedTypes -> Identifier -> SupportedTypes -> ErrorMsg
 sanityCheckTypes :: [String] -> [String] -> [String] -> String -> [String]
@@ -68,7 +79,15 @@ sanityCheckMethodTypes methods types =
         parameterNames = map parameterName methods
         parameterMsg = "used in parameter"
 
--- CLASS checking
+-- Enum CHECKING
+    -- Unique labels
+
+sanityCheckEnums :: [CstProgram] -> [String]
+sanityCheckEnums programs = 
+    map (++ " duplicated label") (duplicates labels)
+    where labels = sort $ concat $ map enumLabels $ concat $ map progEnums programs
+
+-- CLASS CHECKING
 -- Combines errors from sub-class checkers.
 sanityCheckClass :: CstClass -> [String]
 sanityCheckClass (CstClass name usage recusage fields methods) =
