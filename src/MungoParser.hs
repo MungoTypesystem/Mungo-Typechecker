@@ -1,5 +1,5 @@
 module MungoParser( CstProgram (progClasses, progEnums)
-                  , CstClass (CstClass, className, classFields, classMethods)
+                  , CstClass (CstClass, className, classFields, classMethods, classUsage)
                   , CstEnum (CstEnum, enumName, enumLabels)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch, CstUsageVariable)
                   , CstField (CstField, fieldType, fieldName)

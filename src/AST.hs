@@ -34,7 +34,7 @@ data Usage = Usage { current :: UsageImpl
 
 data UsageImpl = UsageChoice [(String, UsageImpl)]
                | UsageBranch [(String, UsageImpl)]
-               | UsageRecursive String
+               | UsageVariable String
                | UsageEnd
                  deriving (Show, Eq)
 
