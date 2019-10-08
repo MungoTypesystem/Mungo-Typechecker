@@ -20,6 +20,7 @@ data Type = BType BaseType
           deriving (Show, Eq)
 
 data EnumDef = EnumDef String [LabelName]
+                deriving (Show)
 
 data Class = Class {
                      cname    :: ClassName,
