@@ -1,5 +1,5 @@
 module MungoParser( CstProgram (progClasses, progEnums)
-                  , CstClass (CstClass, className, classFields, classMethods, classUsage)
+                  , CstClass (CstClass, className, classFields, classMethods, classUsage, classRecUsage)
                   , CstEnum (CstEnum, enumName, enumLabels)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch, CstUsageVariable)
                   , CstField (CstField, fieldType, fieldName)
@@ -49,11 +49,13 @@ data CstField = CstField { fieldType :: String
                          } 
                 deriving (Show)
 
-data CstMethod = CstMethod { methodType    :: String
-                           , methodName    :: String
-                           , parameterType :: String
-                           , parameterName :: String
-                           , methodExpr    :: CstExpression
+data CstMethod = CstMethod { methodType         :: String
+                           , methodTypeUsage    :: Maybe CstUsage 
+                           , methodName         :: String
+                           , parameterType      :: String
+                           , parameterTypeUsage :: Maybe CstUsage 
+                           , parameterName      :: String
+                           , methodExpr         :: CstExpression
                            }
                  deriving (Show)
 
@@ -145,18 +147,37 @@ parseClass =
 parseMethods :: Parser [CstMethod]
 parseMethods = parseMethod `manyTill` lookAhead (reserved "}")
 
-parseMethod :: Parser CstMethod
-parseMethod =
-    do returnType <- identifier
-       methodName <- identifier
+parseMethodWithoutUsage :: Parser CstMethod
+parseMethodWithoutUsage =
+    do returnType                     <- identifier
+       methodName                     <- identifier
        (parameterType, parameterName) <- parens parseParameter
-       body       <- braces parseExpr
-       return $ CstMethod returnType methodName parameterType parameterName body
+       body                           <- braces parseExpr
+       return $ CstMethod returnType Nothing methodName parameterType Nothing parameterName body
     where parseParameter :: Parser (String, String)
           parseParameter = 
                 do paramenterType <- identifier
-                   parameterName <- identifier
+                   parameterName  <- identifier
                    return (paramenterType, parameterName)
+ 
+parseMethod :: Parser CstMethod
+parseMethod =   try parseMethodWithUsage
+            <|> parseMethodWithoutUsage
+
+parseMethodWithUsage :: Parser CstMethod
+parseMethodWithUsage =
+    do returnType                                         <- identifier
+       returnTypeUsage                                    <- brackets parseBranchUsage
+       methodName                                         <- identifier
+       (parameterType, parameterTypeUsage, parameterName) <- parens parseParameter
+       body                                               <- braces parseExpr
+       return $ CstMethod returnType (Just returnTypeUsage) methodName parameterType (Just parameterTypeUsage) parameterName body
+    where parseParameter :: Parser (String, CstUsage, String)
+          parseParameter = 
+                do paramenterType     <- identifier
+                   parameterTypeUsage <- brackets parseBranchUsage
+                   parameterName      <- identifier
+                   return (paramenterType, parameterTypeUsage, parameterName)
         
 
 parseFields :: Parser [CstField]

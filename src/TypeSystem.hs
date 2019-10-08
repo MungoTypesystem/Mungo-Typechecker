@@ -5,6 +5,8 @@ import AST
 import Data.Maybe
 import Control.Applicative
 import Control.Arrow (second)
+import Data.List (sort)
+import Data.Either (partitionEithers)
 
 -- EnvTF
 type FieldTypeEnv = [(FieldName, Type)] 
@@ -142,6 +144,7 @@ checkExpression cls enums lambda delta omega e =
                                   <|> checkTLit   cls enums lambda delta omega e
                                   <|> checkTCallF cls enums lambda delta omega e
                                   <|> checkTCallP cls enums lambda delta omega e
+                                  <|> checkTSwP   cls enums lambda delta omega e
 
 checkTNew cls enums lambda delta omega (ExprNew cn) = 
     let foundCls = findCls cls cn in
@@ -365,6 +368,125 @@ checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
             Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, w)))), omega')
         _ -> Left "Invalid type for field"
 
+lookupLabels :: Type -> [EnumDef] -> Maybe [String]
+lookupLabels (BType (EnumType name)) def = lookupLabels' name def
+lookupLabels _                       def = Nothing
 
+lookupLabels' :: String -> [EnumDef] -> Maybe [String] 
+lookupLabels' name ((EnumDef enumName lbls):xs) = if name == enumName 
+                                                        then Just lbls 
+                                                        else lookupLabels' name xs
+lookupLabels' name [] = Nothing
+
+availableChoices :: Usage -> Either String [String]
+availableChoices usage = availableChoices' (current usage) (recursiveUsages usage) []
+    where availableChoices' :: UsageImpl -> [(String, UsageImpl)] -> [String] -> Either String [String]
+          availableChoices' (UsageChoice l)   _   _        = Right $ map fst l
+          availableChoices' (UsageBranch l)   _   _        = Left "Branch usage is not a choice"
+          availableChoices' (UsageEnd)        _   _        = Left "End usage is not a choice"
+          availableChoices' (UsageVariable r) rec lookedAt = 
+                if r `elem` lookedAt
+                    then Left "infinite transition found"
+                    else ("unable to find recursive variable" ~~ envLookup rec r) >>= \usage ->
+                         availableChoices' usage rec (r:lookedAt)
+
+findUsage :: Type -> Maybe Usage
+findUsage (CType (name, usage)) = Just usage 
+findUsage _                     = Nothing
+
+doTransition :: String -> Usage -> Either String Usage
+doTransition name u@(Usage cur rec) = 
+    case cur of
+        (UsageChoice xs)  -> ("unable to find transition" ~~ envLookup xs name) >>= \cur' -> 
+                             Right $ u{current = cur'}
+        (UsageBranch xs)  -> "unable to find transition" ~~ envLookup xs name >>= \cur' ->
+                             Right $ u{current = cur'}
+        (UsageEnd)        -> Left $ "branch usage have no transitions"
+        (UsageVariable r) -> "unable to find recursive variable" ~~ envLookup rec r >>= \cur' ->
+                             doTransition name u{current = cur'}
+
+checkTSwP :: ExprCheck
+checkTSwP cls enums lambda delta omega e@(ExprSwitch (RefParameter _) _ _) = 
+    Just $ checkTSwP' cls enums lambda delta omega e
+checkTSwP cls enums lambda delta omega _ = Nothing
+
+checkTSwP' :: ExprCheckInternal
+checkTSwP' cls enums lambda delta omega expr@(ExprSwitch (RefParameter x) e _) = do
+    (t, lambda'', delta'', omega'') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
+    let lstEl = lastDelta delta
+    let lstEl' = lastDelta delta''
+    (o, s) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl
+    (o', (x', t')) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
+    assert' (o == o') "Objects does not match in TSwP" $ do
+    assert' (x == x') "Parameter does not match in checkTSwP" $ do
+    lbls <- ("failed to lookup enum" ~~  lookupLabels t enums)
+    usage <- "must be a classtype" ~~ findUsage t'
+    transitions <- availableChoices usage
+    assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
+    assert' (length lbls > 0) "no labels found" $ do
+    -- todo check all transitions end up in the same state 
+    let afterTransition = map (checkTSwP'' cls enums lambda'' delta'' omega'' expr usage) transitions
+    let (failed, succeeded) = partitionEithers afterTransition    
+    assert' (null failed) "some transitions failed" $ do
+    let compareable = head succeeded 
+    assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
+    compareable
+
+checkTSwP'' cls enums lambda delta omega expr usage transition = do
+    expr' <- switchExpr' expr     
+    usage' <- doTransition transition usage
+    let lastEl = lastDelta delta 
+    (o, (x, t)) <- maybeToEither "Left wrong stack size" lastEl
+    case t of 
+        (CType (c, _)) -> let delta' = initDelta delta `with` (o, (x, (CType (c, usage'))))
+                          in "check expression failed" ~~ checkExpression cls enums lambda delta' omega expr'
+        _              -> Left "failed to lookup type"
+    where switchExpr' (ExprSwitch _ _ choices) = 
+                "could not find transition in switch checkTSwP" ~~ envLookup choices transition
+          switchExpr' _                        = 
+                Left $ "could not find transition in switch checkTSwP"
+     
+
+checkTSwF :: ExprCheck
+checkTSwF cls enums lambda delta omega e@(ExprSwitch (RefField _) _ _) = 
+    Just $ checkTSwF' cls enums lambda delta omega e
+checkTSwF cls enums lambda delta omega _ = Nothing
+
+checkTSwF' :: ExprCheckInternal
+checkTSwF' cls enums lambda delta omega expr@(ExprSwitch (RefField f) e _) = do
+    (t, lambda'', delta'', omega'') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
+    let lstEl = lastDelta delta
+    let lstEl' = lastDelta delta''
+    (o, s) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl
+    (o', s') <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
+    assert' (o == o') "Objects does not match in TSwP" $ do
+    ftype <- maybeToEither "could not find fild in CheckTSwF" $ lookupLambda lambda'' o f
+    lbls <- ("failed to lookup enum" ~~  lookupLabels t enums)
+    usage <- "must be a classtype" ~~ findUsage ftype
+    transitions <- availableChoices usage
+    assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
+    assert' (length lbls > 0) "no labels found" $ do
+    -- todo check all transitions end up in the same state 
+    let afterTransition = map (checkTSwF'' cls enums lambda'' delta'' omega'' expr usage f) transitions
+    let (failed, succeeded) = partitionEithers afterTransition    
+    assert' (null failed) "some transitions failed" $ do
+    let compareable = head succeeded 
+    assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
+    compareable
+
+checkTSwF'' cls enums lambda delta omega expr usage f transition = do
+    expr' <- switchExpr' expr     
+    usage' <- doTransition transition usage
+    let lastEl = lastDelta delta 
+    (o, (x, t)) <- maybeToEither "Left wrong stack size" lastEl
+    case t of 
+        (CType (c, _)) -> let lambda' = updateLambda lambda o f (CType (c, usage'))
+                          in "check expression failed" ~~ checkExpression cls enums lambda' delta omega expr'
+        _              -> Left "failed to lookup type"
+    where switchExpr' (ExprSwitch _ _ choices) = 
+                "could not find transition in switch checkTSwF" ~~ envLookup choices transition
+          switchExpr' _                        = 
+                Left $ "could not find transition in switch checkTSwF"
+ 
 -- TSwP
 -- TSwF
