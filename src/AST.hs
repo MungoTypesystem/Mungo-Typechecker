@@ -6,6 +6,7 @@ type MethodName = String
 type ParameterName = String
 type ObjectName = String
 type LabelName = String
+type UsageVarName = String
 data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq)
 
 type Typestate = (ClassName, Usage)

@@ -3,6 +3,7 @@ module TypeSystem where
 import MungoParser
 import AST
 import Data.Maybe
+import Data.Either
 import Control.Applicative
 import Control.Arrow (second)
 import Data.List (sort)
@@ -10,6 +11,9 @@ import Data.Either (partitionEithers)
 
 -- EnvTF
 type FieldTypeEnv = [(FieldName, Type)] 
+
+-- Θ
+type RecursiveEnv = [(UsageVarName, FieldTypeEnv)]
 
 -- Λ
 type ObjectFieldTypeEnv = [(ObjectName, ((ClassName, Type), FieldTypeEnv))]
@@ -28,6 +32,7 @@ type LabelEnv = [(LabelName, (ObjectFieldTypeEnv, Delta))]
 
 type ExprCheck = [Class] -> [EnumDef] -> ObjectFieldTypeEnv -> Delta -> LabelEnv -> Expression -> Maybe (Either String (Type, ObjectFieldTypeEnv, Delta, LabelEnv))
 type ExprCheckInternal = [Class] -> [EnumDef] -> ObjectFieldTypeEnv -> Delta -> LabelEnv -> Expression -> Either String (Type, ObjectFieldTypeEnv, Delta, LabelEnv)
+type UsageCheck = [Class] -> [EnumDef] ->RecursiveEnv -> FieldTypeEnv -> Class -> Usage -> Maybe (Either String (Maybe FieldTypeEnv))
 
 
 assert True _ = pure ()
@@ -35,6 +40,10 @@ assert False err = fail err
 
 assert' True  _   res = res
 assert' False err res = fail err
+
+exists :: Eq b => [(b, a)] -> b -> Bool
+exists lst b = not $ null $ filter ((== b) . fst) lst
+
 
 transitions :: Usage -> [(String, Usage)]
 transitions u = map toUsage $ transitions' (recursiveUsages u) (current u) 
@@ -145,6 +154,7 @@ checkExpression cls enums lambda delta omega e =
                                   <|> checkTCallF cls enums lambda delta omega e
                                   <|> checkTCallP cls enums lambda delta omega e
                                   <|> checkTSwP   cls enums lambda delta omega e
+                                  <|> checkTSwF   cls enums lambda delta omega e
 
 checkTNew cls enums lambda delta omega (ExprNew cn) = 
     let foundCls = findCls cls cn in
@@ -488,5 +498,75 @@ checkTSwF'' cls enums lambda delta omega expr usage f transition = do
           switchExpr' _                        = 
                 Left $ "could not find transition in switch checkTSwF"
  
--- TSwP
--- TSwF
+
+
+
+checkTProg :: [Class] -> [EnumDef] -> Either String ()
+checkTProg cls enums = 
+    checkTProg' cls enums cls
+
+checkTProg' cls enums [] = Right ()
+checkTProg' cls enums (c:cs) = 
+    checkTClass cls enums c >> checkTProg' cls enums cs
+
+checkTClass :: [Class] -> [EnumDef] -> Class -> Either String ()
+checkTClass cls enums c = 
+    let term = checkTUsage cls enums [] (initFields (cfields c)) c (cusage c) in
+        if terminatedEnv term then Left "Invalid terminal env" else Right ()
+
+initFields :: [Field] -> [(FieldName, Type)]
+initFields [] = []
+initFields ((Field (BaseFieldType b) name):flds) = (name, BType b):(initFields flds)
+initFields ((Field (ClassFieldType c) name):flds) = (name, BotType):(initFields flds)
+
+terminatedEnv env = True
+
+checkTUsage :: UsageCheck
+checkTUsage cls enums theta envTf c usage =  
+                            checkTCBr  cls enums theta envTf c usage
+                        <|> checkTCCh  cls enums theta envTf c usage
+                        <|> checkTCEn  cls enums theta envTf c usage
+                        <|> checkTCVar cls enums theta envTf c usage
+                        <|> checkTCRec cls enums theta envTf c usage
+
+allEqual :: Eq a => [a] -> Bool
+allEqual [] = True
+allEqual (a:[]) = True
+allEqual (a:b:lst) = (a == b) && (allEqual (b:lst))
+
+
+findMethod ms m = head $ filter (\ml -> (mname ml) == (mname m)) ms
+
+checkTCBr :: UsageCheck
+checkTCBr cls enums theta envTf c (Usage (UsageBranch lst) bindings) = 
+    Just $ Right $ Just envTf
+
+checkTCBr' cls enums theta envTf c mname (label, uimpl) = do
+    let method = findMethod (cmethods c) mname
+        lambda = [("this", envTf)]
+        delta = ([], [("this", (parname method, partype method))]) 
+        theta = []
+    --(ti', lambda', delta', theta') <- checkExpression cls enums lambda delta theta (mexpr method)
+    True
+
+checkTCCh :: UsageCheck
+checkTCCh cls enums theta envTf c (Usage (UsageChoice lst) bindings) = 
+    let finals = catMaybes $ map (\(label, usage) -> checkTUsage cls enums theta envTf c (Usage usage bindings)) lst
+        actualEnvs = rights finals in
+            if length finals/= length actualEnvs then Just $ Left "Could not typecheck usage in TCCh" else
+                if null actualEnvs then Just $ Left "TCCh no terminal envs" else
+                    if allEqual actualEnvs then Just $ Right (head actualEnvs) else Just $ Left "Final envs do not match TTCh"
+
+checkTCEn :: UsageCheck
+checkTCEn cls enums theta envTf c (Usage UsageEnd _) = 
+    Just $ Right $ Just envTf
+
+checkTCVar :: UsageCheck
+checkTCVar cls enums theta envTf c (Usage (UsageVariable x) us)  = do
+    envLookup us x
+    Just $ Right $ Nothing
+
+checkTCRec :: UsageCheck
+checkTCRec cls enums theta envTf c (Usage (UsageVariable x) us) = do
+    u <- us `envLookup` x
+    checkTUsage cls enums ((x, envTf) : theta) envTf c (Usage u (us `without` x))
