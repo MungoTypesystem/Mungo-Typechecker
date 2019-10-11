@@ -121,7 +121,7 @@ sanityCheckParameters :: [CstMethod] -> [CstField] -> [String]
 sanityCheckParameters methods fields = 
     map (++ " duplicated parameter name") (duplicates parameterNames)
     where
-        parameterNames = sort $ (nub $ map fieldName fields) ++ (map parameterName methods)
+        parameterNames = sort $ (nub $ map fieldName fields) ++ (nub (map parameterName methods))
 
 -- USAGE CHECKING
     -- Duplicate recursive usages

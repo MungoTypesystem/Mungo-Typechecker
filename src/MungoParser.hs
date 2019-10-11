@@ -3,7 +3,7 @@ module MungoParser( CstProgram (progClasses, progEnums)
                   , CstEnum (CstEnum, enumName, enumLabels)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch, CstUsageVariable)
                   , CstField (CstField, fieldType, fieldName)
-                  , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType)
+                  , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType, methodTypeUsage, parameterTypeUsage, methodExpr)
                   , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier)
                   , parseProgram
                   , testSwitch ) where

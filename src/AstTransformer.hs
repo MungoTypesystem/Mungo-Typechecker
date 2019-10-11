@@ -4,6 +4,8 @@ import AST
 import MungoParser
 import Control.Applicative (liftA2, liftA3, (<|>))
 import Control.Arrow (second)
+import Data.Maybe
+import Data.Either
 
 
 -- helper data
@@ -24,17 +26,28 @@ data MethodInfo = MethodInfo { mName  :: String
                              , fNames :: [String]
                              } deriving Show
 
+findMethodInfo :: String -> ClassInfo -> Maybe MethodInfo
+findMethodInfo name (ClassInfo _ methods) = 
+    let found = filter ((== name) . mName) methods
+    in if null found
+        then Nothing
+        else Just $ head found
+
 convertProgram :: CstProgram -> Either String ([Class], [EnumDef])
-convertProgram program = Left $ "the frick"
-   where  enums   = map convertEnums $ progEnums program
-          classes = map (convertClass globalDefinitions classData) $ progClasses program 
+convertProgram program = do
+    let (failedClasses, convertedClasses) = partitionEithers classes
+    if not $ null failedClasses
+        then Left $ "failed to convert classes\n" ++ unlines failedClasses
+        else Right (convertedClasses, enums)
+    where  enums   = map convertEnums $ progEnums program
+           classes = map (convertClass globalDefinitions classData) $ progClasses program 
 
-          classData = createBuilderData (progClasses program)
+           classData = createBuilderData (progClasses program)
 
-          globalDefinitions = GlobalDefinitions classNames enumNames enumValues
-          classNames = map className $ progClasses program
-          enumNames  = map enumName $ progEnums program
-          enumValues = concat . map enumLabels $ progEnums program
+           globalDefinitions = GlobalDefinitions classNames enumNames enumValues
+           classNames = map className $ progClasses program
+           enumNames  = map enumName $ progEnums program
+           enumValues = concat . map enumLabels $ progEnums program
 
 createBuilderData :: [CstClass] -> BuilderData
 createBuilderData = map createClassInfo 
@@ -54,28 +67,54 @@ createMethodInfo fields method =
 convertEnums :: CstEnum -> EnumDef
 convertEnums cstEnum = EnumDef (enumName cstEnum) (enumLabels cstEnum)
 
-convertClass :: GlobalDefinitions -> BuilderData -> CstClass -> Class 
-convertClass global classesData cls = error "not implemeneted"
-    where usage           = convertUsage (classUsage cls)
-          recusage        = convertUsageList (classRecUsage cls)
+convertClass :: GlobalDefinitions -> BuilderData -> CstClass -> Either String Class 
+convertClass global classesData cls =  do
+    let (failedFields, succeededFields)   = partitionEithers fields
+    let (failedMethods, succeededMethods) = partitionEithers convertedMethod 
+    
+    if not $ null failedFields
+        then Left $ "failed to convert fields " ++ concat failedFields
+        else if not $ null failedMethods 
+                then Left $ "failed to convert methods " ++ concat failedMethods
+                else Right $ Class name (Usage usage recursiveU) succeededFields succeededMethods
+    where 
+          usage           = convertUsage (classUsage cls)
+          recursiveU      = convertUsageList (classRecUsage cls)
           classInfo       = createClassInfo cls
+          name            = cName classInfo
           fields          = map (convertField global) (classFields cls)
           classData       = filter ((== className cls). cName) classesData
-          convertedMethod = map (convertMethod global (head classData)) (classMethods cls)
-          
-convertMethod :: GlobalDefinitions -> ClassInfo -> CstMethod -> Either String Class
-convertMethod global method classInfo = 
-    error "tmp"
-    where l = 5
-    
-    
-convertType :: GlobalDefinitions -> String -> Either String Type 
-convertType global typeStr 
-    | typeStr == "void"                  = Right $ BType VoidType
-    | typeStr == "bool"                  = Right $ BType BoolType 
-    | typeStr `elem` (enumNames global)  = Right $ BType $ EnumType typeStr
-    | typeStr `elem` (cNames global) = Right $ CType $ error "reee"
+          convertedMethod = map (convertMethod global (head classData) recursiveU) (classMethods cls)
 
+convertMethod :: GlobalDefinitions -> ClassInfo -> [(String, UsageImpl)] -> CstMethod  -> Either String Method 
+convertMethod global classInfo recUsages method = do
+    mType'  <- mType
+    mpType' <- mpType
+    expr'   <- expr
+    Right $ Method mType' mName mpType' mpName expr' 
+    where className   = cName classInfo
+          mName       = methodName method
+          mType       = convertType global (methodType method) mTypeUsage 
+          mTypeUsage  = methodTypeUsage method >>=
+                        \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
+          mpName      = parameterName method
+          mpType      = convertType global (methodType method) mpTypeUsage 
+          mpTypeUsage = parameterTypeUsage method >>=
+                        \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
+
+          mInfo       = fromMaybe (Left "unable to find methodInfo") $ Right <$> mName `findMethodInfo` classInfo 
+          expr        = mInfo >>= \mInfo' -> convertExpression global mInfo' (methodExpr method)
+          
+convertType :: GlobalDefinitions -> String -> Maybe Usage -> Either String Type 
+convertType global typeStr u
+    | typeStr == "void"                 = Right $ BType VoidType
+    | typeStr == "bool"                 = Right $ BType BoolType 
+    | typeStr `elem` (enumNames global) = Right $ BType $ EnumType typeStr
+    | typeStr `elem` (cNames global)    = if (isJust u) 
+                                            then Right (CType (typeStr, (fromJust u))) 
+                                            else Left "unable to convert to class type"
+    | otherwise                         = Left "unable to convert to Type"
+    
 convertField :: GlobalDefinitions -> CstField -> Either String Field
 convertField global field = liftA2 Field fieldType' (return (fieldName field))
     where fieldType' = convertFieldType global (fieldType field)
@@ -89,14 +128,12 @@ convertClassTypeField global name
     | name `elem` (cNames global) = Right $ ClassFieldType name
     | otherwise                   = Left $ "Unknown field " ++ name
 
-
 convertBaseType :: GlobalDefinitions -> String -> Either String BaseType
 convertBaseType global field 
     | field == "void"                 = Right $ VoidType
     | field == "bool"                 = Right $ BoolType
     | field `elem` (enumNames global) = Right $ EnumType field
     | otherwise                       = Left "cannot convert to base type"
-        
 
 convertUsage :: CstUsage -> UsageImpl
 convertUsage (CstUsageChoice xs)  = UsageChoice $ convertUsageList xs
