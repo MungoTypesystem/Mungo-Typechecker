@@ -27,4 +27,17 @@ class Example {
 		};
 		reader.close()
 	}
+	
+	void main(void x) {
+		reader = new FileReader<Bool[{getState; end}]>;
+		reader.open("myfile");
+		loop: 
+		switch(reader.notEOF(unit))
+			true: state = reader.read(unit);
+				  // use state here
+				  continue loop
+			false: unit
+		};
+		reader.close()
+	}
 }
