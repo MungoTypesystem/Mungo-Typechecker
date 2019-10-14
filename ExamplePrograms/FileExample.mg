@@ -18,7 +18,7 @@ class Example {
 	Bool readState;
 	
 	void main(void x) {
-		reader = new FileReader;
+		reader = new FileReader<Bool[{getState; end}]>;
 		reader.open("myfile");
 		while(reader.notEOF(unit)) {
 			readState = read(unit);
