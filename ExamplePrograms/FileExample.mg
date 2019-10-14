@@ -1,7 +1,7 @@
 class <C[U]> FileReader
 {
-	{open; ReadAble} [
-		ReadAble = {notEOF; <True: {read; ReadAble} 
+	{open; readable} [
+		readable = {notEOF; <True: {read; readable} 
 							 False: {close; End}>
 	]
 	
