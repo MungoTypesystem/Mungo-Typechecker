@@ -151,7 +151,7 @@ sanityCheckUsageMethodExist usage recUsage methods =
         usageMethodNames = usageMethods usage
         recUsageMethods = concat $ map usageMethods $ map snd recUsage
 
-sanityCheckUsageGoesToEnd :: CstUsage -> [(String, CstUsage)] -> String -> [String]
+{--sanityCheckUsageGoesToEnd :: CstUsage -> [(String, CstUsage)] -> String -> [String]
 sanityCheckUsageGoesToEnd usage recusage className = 
    map (++ className) $ sanityCheckUsageGoesToEnd' usage
 
@@ -159,7 +159,7 @@ sanityCheckUsageGoesToEnd' :: CstUsage -> [String]
 sanityCheckUsageGoesToEnd' (CstUsageBranch usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
 sanityCheckUsageGoesToEnd' (CstUsageChoice usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
 sanityCheckUsageGoesToEnd' CstUsageEnd = []
-sanityCheckUsageGoesToEnd' _ = []--["Usage does not go to end in class "]
+sanityCheckUsageGoesToEnd' _ = []--["Usage does not go to end in class "] --}
 
 -- GRAPH STUFF for checking that usage goes to end.
 
@@ -213,4 +213,3 @@ sanityCheckUsageGoesToEnd (CstClass name usage recUsage _ _) =
                             Nothing -> -1
         vs            = vertices g
         notEnd        = filter (\v -> notElem end $ reachable g v) vs
->>>>>>> origin/master
