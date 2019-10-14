@@ -15,14 +15,14 @@ class Example {
 	{main; end}[]
 	
 	FileReader<Bool[{getState; end}]> reader
-	Bool readState;
+	Bool state;
 	
 	void main(void x) {
 		reader = new FileReader<Bool[{getState; end}]>;
 		reader.open("myfile");
 		while(reader.notEOF(unit)) {
-			readState = read(unit);
-			// use readState here
+			state = reader.read(unit);
+			// use state here
 			
 		};
 		reader.close()
