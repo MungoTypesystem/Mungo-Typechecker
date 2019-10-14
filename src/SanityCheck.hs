@@ -155,4 +155,4 @@ sanityCheckUsageGoesToEnd' :: CstUsage -> [String]
 sanityCheckUsageGoesToEnd' (CstUsageBranch usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
 sanityCheckUsageGoesToEnd' (CstUsageChoice usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
 sanityCheckUsageGoesToEnd' CstUsageEnd = []
-sanityCheckUsageGoesToEnd' _ = ["Usage does not go to end in class "]
+sanityCheckUsageGoesToEnd' _ = []--["Usage does not go to end in class "]
