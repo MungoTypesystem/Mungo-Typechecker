@@ -2,7 +2,7 @@ module Main where
 
 import Lib
 import MungoParser
-import TypeSystem
+--import TypeSystem
 import SanityCheck
 import AST
 import Data.Either
@@ -28,7 +28,7 @@ check = do
     program <- readFiles
     let ll = lefts program
     let rr = rights program
-
+    viewGraph rr
     if not (null ll) 
         then forM_ ll putStrLn
         else checkSanity $ rr

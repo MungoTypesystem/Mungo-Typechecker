@@ -163,7 +163,7 @@ concatNodeListPair xs = (concat $ aa [], concat $ bb [])
 getNextNodes :: CstUsage -> String -> ([String], [CstUsage])
 getNextNodes usage context =
     case usage of
-        (CstUsageBranch branchs) -> (map (++ context) $ map fst branchs, map snd branchs)
+        (CstUsageBranch branchs) -> (map (++ (context ++ "//")) $ map fst branchs, map snd branchs)
         (CstUsageChoice choices) -> (concatNodeListPair $ map (`getNextNodes` context) $ map snd choices)
         (CstUsageVariable var)   -> ([var], [])
         (CstUsageEnd)            -> (["end"], [CstUsageVariable "end"])
@@ -207,3 +207,20 @@ sanityCheckUsageGoesToEnd (CstClass name usage recUsage _ _) =
                             Nothing -> -1
         vs            = vertices g
         notEnd        = filter (\v -> notElem end $ reachable g v) vs
+
+viewGraph :: [CstProgram] -> IO ()
+viewGraph programs = do
+    let program = head programs
+    let cls = head $ progClasses program
+    let usage = classUsage cls
+    let recUsage = classRecUsage cls
+    let (g, v2n, k2v) = buildUsageGraph usage recUsage
+    let vs = vertices g
+    print vs
+    print $ v2n 0
+    print $ v2n 1
+    print $ v2n 2
+    print $ v2n 3
+    print $ v2n 4
+    print $ v2n 5
+    print $ v2n 6
