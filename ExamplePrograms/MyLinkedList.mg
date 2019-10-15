@@ -51,7 +51,7 @@ class LinkedBoolList
 		}
 	}
 	
-	void pop(void x) {
+	bool pop(void x) {
 		retValue = head.pop(unit);
 		head = head.popNode(unit);
 		retValue
@@ -66,18 +66,18 @@ class LinkedBoolList
 
 class LinkedBoolListImpl 
 {
-	Usage [
+	Init [
 		Init = {
 			push; {setNode; FullList}
 			emptyList; EmptyList
 		}
 		EmptyList = {
-			getState; <Element: end // not reachable
+			getState; <Element: end 
 					   Empty: end>
 		}
 		FullList = {
-			getState; <Element: GetElement
-				       Empty: End>
+			getState; <Element: GetElement 
+					   Empty: end>
 		}
 		GetElement = {
 			pop; {popNode; end} 
@@ -97,7 +97,7 @@ class LinkedBoolListImpl
 		state = Element
 	}
 	
-	void setNode(LinkedBoolListImpl[Usage] newNode) {
+	void setNode(LinkedBoolListImpl[FullList] newNode) {
 		node = newNode
 	}
 	
@@ -109,7 +109,7 @@ class LinkedBoolListImpl
 		elem
 	}
 		
-	LinkedBoolListImpl[Usage] popNode(void x) {
+	LinkedBoolListImpl[FullList] popNode(void x) {
 		node
 	}
 }

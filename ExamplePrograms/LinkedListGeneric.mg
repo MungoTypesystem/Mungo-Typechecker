@@ -24,7 +24,7 @@ class <C[U]> LinkedList
 			pop; Usage
 		}
 	]
-	                      
+	
 	LinkedListImpl<C[U]> head
 	LinkedListImpl<C[U]> tmp
 	C[U] retValue
@@ -51,7 +51,7 @@ class <C[U]> LinkedList
 		}
 	}
 	
-	void pop(void x) {
+	C[U] pop(void x) {
 		retValue = head.pop(unit);
 		head = head.popNode(unit);
 		retValue
@@ -66,25 +66,25 @@ class <C[U]> LinkedList
 
 class <C[U]> LinkedListImpl 
 {
-	Usage [
+	Init [
 		Init = {
 			push; {setNode; FullList}
 			emptyList; EmptyList
 		}
 		EmptyList = {
-			getState; <Element: end // not reachable
+			getState; <Element: end 
 					   Empty: end>
 		}
 		FullList = {
-			getState; <Element: GetElement
-				       Empty: End>
+			getState; <Element: GetElement 
+					   Empty: end>
 		}
 		GetElement = {
 			pop; {popNode; end} 
 		}
 	]
 	
-	C[U]  elem
+	C[U] elem
 	ListState state
 	LinkedListImpl<C[U]> node
 	
@@ -97,7 +97,7 @@ class <C[U]> LinkedListImpl
 		state = Element
 	}
 	
-	void setNode(LinkedListImpl<C[U]>[Usage] newNode) {
+	void setNode(LinkedListImpl<C[U]>[FullList] newNode) {
 		node = newNode
 	}
 	
@@ -109,7 +109,7 @@ class <C[U]> LinkedListImpl
 		elem
 	}
 		
-	LinkedListImpl<C[U]>[Usage] popNode(void x) {
+	LinkedListImpl<C[U]>[FullList] popNode(void x) {
 		node
 	}
 }
