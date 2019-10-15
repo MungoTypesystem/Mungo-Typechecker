@@ -526,7 +526,9 @@ initFields [] = []
 initFields ((Field (BaseFieldType b) name):flds) = (name, BType b):(initFields flds)
 initFields ((Field (ClassFieldType c) name):flds) = (name, BotType):(initFields flds)
 
-terminatedEnv env = True
+terminatedEnv :: FieldTypeEnv -> Bool
+terminatedEnv [] = True
+terminatedEnv ((n, t):env) = lin t && terminatedEnv env
 
 checkTUsage :: UsageCheck
 checkTUsage cls enums theta envTf c usage = trace "tUsage" $
