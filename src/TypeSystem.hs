@@ -534,20 +534,34 @@ allEqual [] = True
 allEqual (a:[]) = True
 allEqual (a:b:lst) = (a == b) && (allEqual (b:lst))
 
-
-findMethod ms m = head $ filter (\ml -> (mname ml) == (mname m)) ms
+findMethod :: [Method] -> String -> Method
+findMethod ms m = head $ filter (\ml -> (mname ml) == m) ms
 
 checkTCBr :: UsageCheck
 checkTCBr cls enums theta envTf c (Usage (UsageBranch lst) bindings) = 
-    Just $ Right $ Just envTf
+    let bres = map (\(s,i) -> checkTCBr' cls enums theta envTf c s (s, i, bindings)) lst
+        errors = lefts bres
+        envs = rights bres
+        envsToCheck = catMaybes envs in
+            if allEqual envsToCheck then Just $ Right $ Just $ head envsToCheck
+            else Just $ Left "Environments do not match TCBr"
 
-checkTCBr' cls enums theta envTf c mname (label, uimpl) = do
+terminated = not . lin
+
+checkTCBr' :: [Class] -> [EnumDef] -> RecursiveEnv -> FieldTypeEnv -> Class -> String -> (String, UsageImpl, [(String, UsageImpl)]) -> Either String (Maybe FieldTypeEnv)
+checkTCBr' cls enums theta envTf c mname (label, uimpl, bindings) = do
     let method = findMethod (cmethods c) mname
-        lambda = [("this", envTf)]
+        lambda = [("this", ((cname c, CType (cname c, Usage uimpl bindings)), envTf))]
         delta = ([], [("this", (parname method, partype method))]) 
         theta = []
-    --(ti', lambda', delta', theta') <- checkExpression cls enums lambda delta theta (mexpr method)
-    True
+    (ti', lambda', delta', theta') <-  "test" `maybeEitherToEither` checkExpression cls enums lambda delta [] (mexpr method)
+    let lstEl = lastDelta delta'
+    (o, (pname, ti'')) <- fromMaybe (Left "Wrong stack size in TCBr") $ Right <$> lstEl
+    (_, envTf'') <- fromMaybe (Left "Bla") $ Right <$> envLookup lambda "this"
+    assert' (ti'' == (partype method)) "Wrong resulting parameter type TCBr" $ do
+    assert' (terminated ti'') "Parameter must be terminated TCBr" $ do
+    fromJust $ checkTUsage cls enums theta envTf'' c (Usage uimpl bindings)
+
 
 checkTCCh :: UsageCheck
 checkTCCh cls enums theta envTf c (Usage (UsageChoice lst) bindings) = 
