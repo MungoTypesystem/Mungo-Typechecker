@@ -5,6 +5,7 @@ import AST
 import MungoParser
 import Data.Maybe
 import Data.Graph
+import Debug.Trace (trace)
 
 
 -- Helper functions 
@@ -151,54 +152,47 @@ sanityCheckUsageMethodExist usage recUsage methods =
         usageMethodNames = usageMethods usage
         recUsageMethods = concat $ map usageMethods $ map snd recUsage
 
-{--sanityCheckUsageGoesToEnd :: CstUsage -> [(String, CstUsage)] -> String -> [String]
-sanityCheckUsageGoesToEnd usage recusage className = 
-   map (++ className) $ sanityCheckUsageGoesToEnd' usage
-
-sanityCheckUsageGoesToEnd' :: CstUsage -> [String]
-sanityCheckUsageGoesToEnd' (CstUsageBranch usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
-sanityCheckUsageGoesToEnd' (CstUsageChoice usage) = concat $ map sanityCheckUsageGoesToEnd' $ map snd usage
-sanityCheckUsageGoesToEnd' CstUsageEnd = []
-sanityCheckUsageGoesToEnd' _ = []--["Usage does not go to end in class "] --}
-
 -- GRAPH STUFF for checking that usage goes to end.
 
-getNextNodes :: CstUsage -> ([String], [CstUsage])
-getNextNodes usage =
+concatNodeListPair :: [([String], [CstUsage])] -> ([String], [CstUsage])
+concatNodeListPair xs = (concat $ aa [], concat $ bb [])
+    where
+        aa = foldl (++) $ map fst xs
+        bb = foldl (++) $ map snd xs
+
+getNextNodes :: CstUsage -> String -> ([String], [CstUsage])
+getNextNodes usage context =
     case usage of
-        (CstUsageBranch branchs) -> (map fst branchs, map snd branchs)
-        (CstUsageChoice choices) -> (concat $ map fst $ map getNextNodes $ map snd choices, map snd choices)
+        (CstUsageBranch branchs) -> (map (++ context) $ map fst branchs, map snd branchs)
+        (CstUsageChoice choices) -> (concatNodeListPair $ map (`getNextNodes` context) $ map snd choices)
         (CstUsageVariable var)   -> ([var], [])
         (CstUsageEnd)            -> (["end"], [CstUsageVariable "end"])
 
 buildRecUsagePaths :: [(String, CstUsage)] -> [(String, String, [String])]
 buildRecUsagePaths (x:xs) =
     [(s, s, nextNodes)] 
-    ++ (buildUsagePaths $ snd x)
+    ++ ((`buildUsagePaths` s) $ snd x)
     ++ (buildRecUsagePaths xs)
     where
         s = fst x
-        (nextNodes, nextUsages) = getNextNodes $ snd x
+        (nextNodes, nextUsages) = (`getNextNodes` s) $ snd x
 buildRecUsagePaths _ = []
 
-buildUsagePaths :: CstUsage -> [(String, String, [String])]
-buildUsagePaths usage =
-    (map (\p -> (fst p, fst p, nub $ snd p)) $ zip s w) 
-    ++ (concat $ map buildUsagePaths (ends ++ nextUsages))
+buildUsagePaths :: CstUsage -> String -> [(String, String, [String])]
+buildUsagePaths usage context =
+    (map (\p -> (fst p, fst p, nub $ snd p)) $ zip cN toNodes) 
+    ++ (concat $ map (`buildUsagePaths` context) cU)
     where
-        currNodes   = getNextNodes usage
-        s           = fst currNodes
-        nextNodes   = map getNextNodes $ snd currNodes
-        nextUsages  = concat $ map snd nextNodes
-        ends        = filter (\x -> x == (CstUsageEnd)) (snd currNodes)
-        w           = map fst nextNodes
+        (cN, cU)    = (`getNextNodes` context) usage
+        nNs         = map (`getNextNodes` context) cU
+        toNodes     = map fst nNs
 
-buildUsageGraph :: CstUsage -> [(String, CstUsage)] -> (Graph, Vertex -> (String, String, [String]), String -> Maybe Vertex) 
+buildUsageGraph :: CstUsage -> [(String, CstUsage)] -> (Graph, Int -> (String, String, [String]), String -> Maybe Vertex) 
 buildUsageGraph usage recUsage = 
     graphFromEdges edges
     where
         recEdges   = buildRecUsagePaths recUsage
-        usageEdges = buildUsagePaths usage
+        usageEdges = buildUsagePaths usage ""
         edges      = recEdges ++ usageEdges
 
 sanityCheckUsageGoesToEnd :: CstClass -> String

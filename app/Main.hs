@@ -8,6 +8,7 @@ import AST
 import Data.Either
 import Control.Monad
 import Control.Applicative
+import Data.Graph
 
 main :: IO ()
 main = putStrLn "hello world"
@@ -25,7 +26,6 @@ readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1]
 
 check = do
     program <- readFiles
-    --return program
     let ll = lefts program
     let rr = rights program
 
