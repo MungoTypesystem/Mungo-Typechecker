@@ -6,7 +6,7 @@ import Control.Monad
 import SanityCheck
 
 simpleFile = 
-    "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/SimpleExample2.mg"
+    "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/MyLinkedList.mg"
 
 
 runFile :: String -> IO ()
@@ -17,6 +17,7 @@ runFile s = do
 
 checkCST :: CstProgram -> IO ()
 checkCST prog = do
+    putStrLn . show $ prog
     let check = sanityCheck [prog]
     if not $ null check
         then forM_ check putStrLn

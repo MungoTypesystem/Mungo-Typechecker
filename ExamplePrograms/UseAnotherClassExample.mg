@@ -1,5 +1,5 @@
 class test {
-    end []
+    { x ; S } [ S = {foo ; end} ]
 
    	test m
     

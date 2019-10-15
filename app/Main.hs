@@ -21,10 +21,11 @@ sequence' l (x:xs) = do
 testFile1 = "../Mungo-Inference/ExamplePrograms/SimpleExample.mg"
 testFile2 = "../Mungo-Inference/ExamplePrograms/UseAnotherClassExample.mg"
 
-readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1, testFile2]
+readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1]
 
 check = do
     program <- readFiles
+    --return program
     let ll = lefts program
     let rr = rights program
 

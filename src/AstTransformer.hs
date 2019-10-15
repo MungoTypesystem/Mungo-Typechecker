@@ -6,7 +6,7 @@ import Control.Applicative (liftA2, liftA3, (<|>))
 import Control.Arrow (second)
 import Data.Maybe
 import Data.Either
-
+import Debug.Trace
 
 -- helper data
 
@@ -88,7 +88,7 @@ convertClass global classesData cls =  do
 
 convertMethod :: GlobalDefinitions -> ClassInfo -> [(String, UsageImpl)] -> CstMethod  -> Either String Method 
 convertMethod global classInfo recUsages method = do
-    mType'  <- mType
+    mType'  <-  mType
     mpType' <- mpType
     expr'   <- expr
     Right $ Method mType' mName mpType' mpName expr' 
@@ -98,7 +98,7 @@ convertMethod global classInfo recUsages method = do
           mTypeUsage  = methodTypeUsage method >>=
                         \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
           mpName      = parameterName method
-          mpType      = convertType global (methodType method) mpTypeUsage 
+          mpType      = convertType global (parameterType method) mpTypeUsage 
           mpTypeUsage = parameterTypeUsage method >>=
                         \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
 
@@ -112,8 +112,8 @@ convertType global typeStr u
     | typeStr `elem` (enumNames global) = Right $ BType $ EnumType typeStr
     | typeStr `elem` (cNames global)    = if (isJust u) 
                                             then Right (CType (typeStr, (fromJust u))) 
-                                            else Left "unable to convert to class type"
-    | otherwise                         = Left "unable to convert to Type"
+                                            else Left $ "unable to convert to class type " ++ typeStr ++ " "
+    | otherwise                         = Left $ "unable to convert to Type " ++ typeStr ++ " "
     
 convertField :: GlobalDefinitions -> CstField -> Either String Field
 convertField global field = liftA2 Field fieldType' (return (fieldName field))
@@ -169,7 +169,7 @@ convertAssign global methodInfo fieldName expr =
 convertCall :: GlobalDefinitions -> MethodInfo -> String -> String -> CstExpression -> Either String Expression
 convertCall global methodInfo reference method expr = 
     ExprCall <$> ref <*> return method <*> convertExpression global methodInfo expr
-    where ref = convertReference global methodInfo method
+    where ref = convertReference global methodInfo reference 
 
 convertSeq :: GlobalDefinitions -> MethodInfo -> CstExpression -> CstExpression -> Either String Expression
 convertSeq global methodInfo expr1 expr2 = 
@@ -208,7 +208,9 @@ convertSwitch global methodInfo expr matches =
             (ExprCall ref' _ expr') -> ExprSwitch ref' expr' <$> matches'
             _                       -> Left $ "failed to convert call"
     where (CstExprCall ref method param) = expr
+
           call      = convertCall global methodInfo ref method param
+
           matches'' = sequence $ map (uncurry (convertLabel global methodInfo)) matches
           matches'  = map (\(ExprLabel n e) -> (n, e)) <$> matches''
 
@@ -229,8 +231,9 @@ convertToField global methodInfo name
     | otherwise                     = Left $ "field not found " ++ name
 
 convertToLiteral :: GlobalDefinitions -> MethodInfo -> String -> Either String Expression
-convertToLiteral global methodInfo name = 
-    Left "literal not found"
+convertToLiteral global methodInfo name 
+    | name `elem` enumValues global = Right $ ExprLitteral name
+    | True                          = Left $ "literal not found " ++ name
 
 convertReference :: GlobalDefinitions -> MethodInfo -> String -> Either String Reference
 convertReference global methodInfo name =   convertToParameter global methodInfo name

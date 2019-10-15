@@ -147,38 +147,21 @@ parseClass =
 parseMethods :: Parser [CstMethod]
 parseMethods = parseMethod `manyTill` lookAhead (reserved "}")
 
-parseMethodWithoutUsage :: Parser CstMethod
-parseMethodWithoutUsage =
-    do returnType                     <- identifier
-       methodName                     <- identifier
-       (parameterType, parameterName) <- parens parseParameter
-       body                           <- braces parseExpr
-       return $ CstMethod returnType Nothing methodName parameterType Nothing parameterName body
-    where parseParameter :: Parser (String, String)
-          parseParameter = 
-                do paramenterType <- identifier
-                   parameterName  <- identifier
-                   return (paramenterType, parameterName)
- 
 parseMethod :: Parser CstMethod
-parseMethod =   try parseMethodWithUsage
-            <|> parseMethodWithoutUsage
-
-parseMethodWithUsage :: Parser CstMethod
-parseMethodWithUsage =
+parseMethod =
     do returnType                                         <- identifier
-       returnTypeUsage                                    <- brackets parseBranchUsage
+       returnTypeUsage                                    <- optionMaybe $ brackets parseBranchUsage
        methodName                                         <- identifier
        (parameterType, parameterTypeUsage, parameterName) <- parens parseParameter
        body                                               <- braces parseExpr
-       return $ CstMethod returnType (Just returnTypeUsage) methodName parameterType (Just parameterTypeUsage) parameterName body
-    where parseParameter :: Parser (String, CstUsage, String)
+       return $ CstMethod returnType returnTypeUsage methodName parameterType parameterTypeUsage parameterName body
+    where parseParameter :: Parser (String, Maybe CstUsage, String)
           parseParameter = 
                 do paramenterType     <- identifier
-                   parameterTypeUsage <- brackets parseBranchUsage
+                   parameterTypeUsage <- optionMaybe $ brackets parseBranchUsage
                    parameterName      <- identifier
                    return (paramenterType, parameterTypeUsage, parameterName)
-        
+
 
 parseFields :: Parser [CstField]
 parseFields =  parseField `manyTill` lookAhead (try parseMethod)
@@ -300,13 +283,14 @@ parseIfExpr =
     do reserved "if"
        cond <- parens parseExpr
        expr1 <- braces parseExpr
+       reserved "else"
        expr2 <- braces parseExpr
        return $ CstExprIf cond expr1 expr2
 
 parseLabelExpr :: Parser CstExpression
 parseLabelExpr =
     do label <- identifier
-       reserved ":"
+       reservedOp ":"
        expr <- parseExpr
        return $ CstExprLabel label expr
        
