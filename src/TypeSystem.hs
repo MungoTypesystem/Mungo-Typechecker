@@ -8,6 +8,7 @@ import Control.Applicative
 import Control.Arrow (second)
 import Data.List (sort)
 import Data.Either (partitionEithers)
+import Debug.Trace (trace)
 
 -- EnvTF
 type FieldTypeEnv = [(FieldName, Type)] 
@@ -138,7 +139,7 @@ findCls [] _ = Nothing
 findCls (cls@(Class cn _ _ _):clss) name = if cn == name then Just cls else findCls clss name
 
 checkExpression :: ExprCheck
-checkExpression cls enums lambda delta omega e =  
+checkExpression cls enums lambda delta omega e = trace "check expression" $
                                       checkTNew   cls enums lambda delta omega e
                                   <|> checkTFld   cls enums lambda delta omega e
                                   <|> checkTUnit  cls enums lambda delta omega e
@@ -191,8 +192,9 @@ checkTFld' cls enums lambda delta omega (ExprAssign fname e) = do
 
 checkTFld :: ExprCheck
 checkTFld cls enums lambda delta omega exp@(ExprAssign fname e) = 
-    Just $ checkTFld' cls enums lambda delta omega exp 
-checkTFld cls enums lambda delta omega _ = Nothing
+    let res = Just $ checkTFld' cls enums lambda delta omega exp 
+    in trace ("TFld" ++ show res) res
+checkTFld cls enums lambda delta omega _ = trace ("TFld") Nothing
 
 checkTUnit :: ExprCheck
 checkTUnit cls enums lambda delta omega ExprUnit = Just $ Right (BType VoidType, lambda, delta, omega)
@@ -503,16 +505,21 @@ checkTSwF'' cls enums lambda delta omega expr usage f transition = do
 
 checkTProg :: [Class] -> [EnumDef] -> Either String ()
 checkTProg cls enums = 
-    checkTProg' cls enums cls
+    trace "checkTProg" $ checkTProg' cls enums cls
 
 checkTProg' cls enums [] = Right ()
 checkTProg' cls enums (c:cs) = 
-    checkTClass cls enums c >> checkTProg' cls enums cs
+    let checkTClassRes = checkTClass cls enums c
+        checkTProgRes = checkTProg' cls enums cs
+        res = checkTClassRes >> checkTProgRes
+    in trace ("checkTProg' " ++ show res) res
 
 checkTClass :: [Class] -> [EnumDef] -> Class -> Either String ()
 checkTClass cls enums c = 
-    let term = checkTUsage cls enums [] (initFields (cfields c)) c (cusage c) in
-        if terminatedEnv term then Left "Invalid terminal env" else Right ()
+    let term = checkTUsage cls enums [] (initFields (cfields c)) c (cusage c) 
+    in trace "checkTClass" $ if terminatedEnv term 
+            then Right () 
+            else Left "Invalid terminal env"
 
 initFields :: [Field] -> [(FieldName, Type)]
 initFields [] = []
@@ -522,7 +529,7 @@ initFields ((Field (ClassFieldType c) name):flds) = (name, BotType):(initFields 
 terminatedEnv env = True
 
 checkTUsage :: UsageCheck
-checkTUsage cls enums theta envTf c usage =  
+checkTUsage cls enums theta envTf c usage = trace "tUsage" $
                             checkTCBr  cls enums theta envTf c usage
                         <|> checkTCCh  cls enums theta envTf c usage
                         <|> checkTCEn  cls enums theta envTf c usage
@@ -543,8 +550,8 @@ checkTCBr cls enums theta envTf c (Usage (UsageBranch lst) bindings) =
         errors = lefts bres
         envs = rights bres
         envsToCheck = catMaybes envs in
-            if allEqual envsToCheck then Just $ Right $ Just $ head envsToCheck
-            else Just $ Left "Environments do not match TCBr"
+            if allEqual envsToCheck then trace "tcbr" $ Just $ Right $ Just $ head envsToCheck
+            else trace "tcbr" $ Just $ Left "Environments do not match TCBr"
 
 terminated = not . lin
 
