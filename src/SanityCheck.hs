@@ -26,8 +26,8 @@ getAllTypes classes enums = (map className classes)
     -- Unique literals
 sanityCheck :: [CstProgram] -> [String]
 sanityCheck programs = 
-    (sanityCheckEnums programs)
-    ++ (sanityCheckPrograms programs)
+    filter (not . null) $ (sanityCheckEnums programs)
+                           ++ (sanityCheckPrograms programs)
 
 sanityCheckDuplicateNames :: [CstClass] -> [CstEnum] -> [String]
 sanityCheckDuplicateNames classes enums =

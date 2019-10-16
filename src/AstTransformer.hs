@@ -7,7 +7,6 @@ import Control.Arrow (second)
 import Data.Maybe
 import Data.Either
 import Debug.Trace
-
 -- helper data
 
 data GlobalDefinitions = GlobalDefinitions { cNames :: [String]
@@ -98,7 +97,7 @@ convertClass global classesData cls =  do
 convertMethod :: GlobalDefinitions -> BuilderData -> ClassInfo -> [(String, UsageImpl)] -> CstMethod  -> Either String Method 
 convertMethod global classesData classInfo recUsages method = do
     mType'  <-  mType
-    mpType' <- trace ("test" ++ show mpTypeUsage ++ "  " ++ parameterType method) $ mpType
+    mpType' <- mpType
     expr'   <- expr
     Right $ Method mType' mName mpType' mpName expr' 
     where className   = cName classInfo
