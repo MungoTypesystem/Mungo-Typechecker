@@ -9,7 +9,7 @@ import SanityCheck
 import TypeSystem
 
 simpleFile = 
-    "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/FileExample3.mg"
+    "ExamplePrograms/FileExample3.mg"
 
 
 runFile :: String -> IO ()
