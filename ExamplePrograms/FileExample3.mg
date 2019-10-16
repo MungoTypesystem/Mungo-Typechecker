@@ -52,7 +52,7 @@ class RecursiveRead
 		switch(f.isEOF(unit)) {
 			NOTEOF: f.read(unit);
 					reader.read(f)
-			EOF:    unit; reader.close(f)
+			EOF:    reader.close(f)
 		}
 	}
 	
