@@ -8,6 +8,7 @@ import AST
 import Data.Either
 import Control.Monad
 import Control.Applicative
+import LanguageTest
 
 main :: IO ()
 main = putStrLn "hello world"

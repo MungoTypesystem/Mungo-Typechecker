@@ -6,12 +6,26 @@ import Data.Maybe
 import Data.Either
 import Control.Applicative
 import Control.Arrow (second)
-import Data.List (sort)
+import Data.List (sort, intersperse)
 import Data.Either (partitionEithers)
-import Debug.Trace (trace)
 
 -- EnvTF
 type FieldTypeEnv = [(FieldName, Type)] 
+
+
+(===) :: FieldTypeEnv -> FieldTypeEnv -> Bool
+((n1, BType b1):xs1)     === ((n2, BType b2):xs2)     = n1 == n2 && b1 == b2 && xs1 == xs2
+((n1, BotType ):xs1)     === ((n2, BotType):xs2)      = n1 == n2 && True && xs1 == xs2
+((n1, CType c1):xs1)     === ((n2, CType c2):xs2)     = n1 == n2 && c1 == c2 && xs1 == xs2
+((n1, BotType) :xs1)     === ((n2, CType (_, u)):xs2) = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
+((n1, CType (_, u)):xs1) === ((n2, BotType):xs2)      = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
+[]                       === []                       = True
+_                        === _                        = False 
+   
+
+
+
+
 
 -- Θ
 type RecursiveEnv = [(UsageVarName, FieldTypeEnv)]
@@ -36,11 +50,25 @@ type ExprCheckInternal = [Class] -> [EnumDef] -> ObjectFieldTypeEnv -> Delta -> 
 type UsageCheck = [Class] -> [EnumDef] ->RecursiveEnv -> FieldTypeEnv -> Class -> Usage -> Maybe (Either String (Maybe FieldTypeEnv))
 
 
-assert True _ = pure ()
+{--assert True _ = pure ()
 assert False err = fail err
 
+assert True _ = pure ()
+assert False err = fail err --}
+
+head' (x:xs) = x
+head' []     = head' []
+
+
+assert' :: Bool -> String -> Either String a -> Either String a
 assert' True  _   res = res
-assert' False err res = fail err
+assert' False err res = Left err
+
+assertM' :: Bool -> String -> Maybe a -> Maybe a 
+assertM' True  _   res = res
+assertM' False err res = fail err
+
+
 
 exists :: Eq b => [(b, a)] -> b -> Bool
 exists lst b = not $ null $ filter ((== b) . fst) lst
@@ -130,8 +158,9 @@ getLambdaField lambda oname fldname = do
     envLookup env fldname
 
 agree :: FieldType -> Type -> Bool
-agree (BaseFieldType b1) (BType b2) = b1 == b2
+agree (BaseFieldType b1) (BType b2)         = b1 == b2
 agree (ClassFieldType cn1) (CType (cn2, _)) = cn1 == cn2
+agree (ClassFieldType cn1) (BotType)        = True
 agree _ _ = False
 
 findCls :: [Class] -> String -> Maybe Class
@@ -139,28 +168,32 @@ findCls [] _ = Nothing
 findCls (cls@(Class cn _ _ _):clss) name = if cn == name then Just cls else findCls clss name
 
 checkExpression :: ExprCheck
-checkExpression cls enums lambda delta omega e = trace "check expression" $
-                                      checkTNew   cls enums lambda delta omega e
-                                  <|> checkTFld   cls enums lambda delta omega e
-                                  <|> checkTUnit  cls enums lambda delta omega e
-                                  <|> checkTBot   cls enums lambda delta omega e
-                                  <|> checkTSeq   cls enums lambda delta omega e
-                                  <|> checkTBool  cls enums lambda delta omega e
-                                  <|> checkTIf    cls enums lambda delta omega e
-                                  <|> checkTRet   cls enums lambda delta omega e
-                                  <|> checkTObj   cls enums lambda delta omega e
-                                  <|> checkTLab   cls enums lambda delta omega e
-                                  <|> checkTCon   cls enums lambda delta omega e
-                                  <|> checkTLit   cls enums lambda delta omega e
-                                  <|> checkTCallF cls enums lambda delta omega e
-                                  <|> checkTCallP cls enums lambda delta omega e
-                                  <|> checkTSwP   cls enums lambda delta omega e
-                                  <|> checkTSwF   cls enums lambda delta omega e
+checkExpression cls enums lambda delta omega e = 
+                                      checkTFld    cls enums lambda delta omega e
+                                  <|> checkTNew    cls enums lambda delta omega e
+                                  <|> checkTUnit   cls enums lambda delta omega e
+                                  <|> checkTBot    cls enums lambda delta omega e
+                                  <|> checkTSeq    cls enums lambda delta omega e
+                                  <|> checkTBool   cls enums lambda delta omega e
+                                  <|> checkTIf     cls enums lambda delta omega e
+                                  <|> checkTRet    cls enums lambda delta omega e
+                                  <|> checkTObj    cls enums lambda delta omega e
+                                  <|> checkTLab    cls enums lambda delta omega e
+                                  <|> checkTCon    cls enums lambda delta omega e
+                                  <|> checkTLit    cls enums lambda delta omega e
+                                  <|> checkTCallF  cls enums lambda delta omega e
+                                  <|> checkTCallP  cls enums lambda delta omega e
+                                  <|> checkTSwP    cls enums lambda delta omega e
+                                  <|> checkTSwF    cls enums lambda delta omega e
+                                  <|> checkTParRef cls enums lambda delta omega e
+                                  <|> checkTFldRef cls enums lambda delta omega e
+                                  <|> (Just . Left $ "failed to parse " ++ show e)
 
 checkTNew cls enums lambda delta omega (ExprNew cn) = 
-    let foundCls = findCls cls cn in
-        case foundCls of 
-            Just (Class clsname usage _ _) -> Just $ Right (CType (clsname, usage), lambda, delta, omega)
+    let foundCls = findCls cls cn 
+    in case foundCls of 
+            Just (Class clsname usage _ _) -> 
+                Just $ Right (CType (clsname, usage), lambda, delta, omega)
             Nothing -> Just $ Left "Invalid class name in new"
 checkTNew cls enums lambda delta omega _ = Nothing
 
@@ -176,6 +209,7 @@ checkTFld' cls enums lambda delta omega (ExprAssign fname e) = do
     (t', lambda', delta', omega') <- maybeEitherToEither "This *will* never happen -Mikkel 2019" $ checkExpression cls enums lambda delta omega e
     
     -- agree(C.fields(f), t')
+    let fieldType = (getField cls cname fname) 
     let a = agree (getField cls cname fname) t' 
 
     -- not lin(t)
@@ -192,9 +226,8 @@ checkTFld' cls enums lambda delta omega (ExprAssign fname e) = do
 
 checkTFld :: ExprCheck
 checkTFld cls enums lambda delta omega exp@(ExprAssign fname e) = 
-    let res = Just $ checkTFld' cls enums lambda delta omega exp 
-    in trace ("TFld" ++ show res) res
-checkTFld cls enums lambda delta omega _ = trace ("TFld") Nothing
+    Just $ checkTFld' cls enums lambda delta omega exp 
+checkTFld cls enums lambda delta omega _ = Nothing
 
 checkTUnit :: ExprCheck
 checkTUnit cls enums lambda delta omega ExprUnit = Just $ Right (BType VoidType, lambda, delta, omega)
@@ -214,8 +247,8 @@ checkTSeq cls enums lambda delta omega (ExprSeq e1 e2) = do
     case r of
         Left err -> return $ Left err
         Right (t, lambda', delta', omega') -> 
-            assert' (not (lin t)) "Linear value dropped in TSeq" $ do
-                checkExpression cls enums lambda' delta' omega' e2
+            assertM' (not (lin t)) "Linear value dropped in TSeq" $ do
+                checkExpression cls enums lambda' delta' omega' e2 
 checkTSeq cls enums lambda delta omega _ = Nothing
 
 checkTRet' :: ExprCheckInternal
@@ -225,7 +258,7 @@ checkTRet' cls enums lambda delta omega (ExprReturn e)= do
     (t, lambda', delta', omega') <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda (initDelta delta) omega e
     let lastEl' = lastDelta delta'
     (o', (x, t')) <- fromMaybe (Left "Wrong stack size in TRet") $ Right <$> lastEl'
-    assert (lin t') "t' must be terminated in TRet"
+    assert' (lin t') "t' must be terminated in TRet" $ do
     Right (t, lambda', (initDelta delta') `with` (o, s), omega')
 
 checkTRet :: ExprCheck
@@ -261,19 +294,15 @@ checkTObj cls enums lambda (envTo, envTs) omega (ExprObjectName o) = do
 checkTObj cls enums lambda delta omega _ = Nothing
 
 checkTLab' :: ExprCheckInternal
-checkTLab' cls enums lambda delta omega (ExprLabel label e) = do
-    let binding = envLookup omega label
-    case binding of
-        Nothing -> Left "Could not find label in label environment"
-        Just (lambda', delta') -> 
-            assert' (lambda == lambda') "Lambdas do not match" $ do
-            assert' (delta == delta') "Deltas do not match" $ do
-            (t, lambda'', delta'', omega'') <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda' delta' (omega `without` label) e
-            assert' (lambda'' == lambda') "Lambdas do not match (2)" $ do
-            assert' (delta'' == delta') "Deltas do not match (2)" $ do
+checkTLab' cls enums lambda delta omega (ExprLabel label e) = 
+    case envLookup omega label of
+        Just _  -> Left $ "Label " ++ label ++ " already defined"
+        Nothing -> do
+            (t, lambda', delta', omega') <- maybeEitherToEither ("could not typecheck " ++ label ++ " expression" )  $ checkExpression cls enums lambda delta ((label, (lambda, delta)) :omega ) e
+            assert' (lambda == lambda') "Lambdas do not match (2)" $ do
+            assert' (delta == delta') "Deltas do not match (2)" $ do
             assert' (t == BType VoidType) "Wrong value of labelled expression" $ do
-            Right (t, lambda'', delta'', omega)
-            
+            Right (t, lambda', delta', omega)
 
 checkTLab :: ExprCheck
 checkTLab cls enums lambda delta omega exp@(ExprLabel label e) = 
@@ -286,9 +315,10 @@ checkTCon cls enums lambda delta omega (ExprContinue label) = do
     case binding of 
         Nothing -> Just $ Left "No binding for label found in continue expression"
         Just (lambda', delta') -> 
-            assert' (lambda == lambda') "Lambdas do not match" $ do
-            assert' (delta == delta') "Deltas do not match" $ do
-            Just $ Right (BType VoidType, lambda, delta, omega)
+            Just $ do
+                assert' (lambda == lambda') "Lambdas do not match" $ do
+                assert' (delta == delta') "Deltas do not match" $ do
+                Right (BType VoidType, lambda, delta, omega)
 checkTCon cls enums lambda delta omega _ = Nothing
 
 checkTLit :: ExprCheck
@@ -300,16 +330,15 @@ checkTLit cls enums lambda delta omega (ExprLitteral litteral) = do
 checkTLit cls enums lambda delta omega _ = Nothing
 
 checkTFldRef :: ExprCheck
-checkTFldRef cls enums lambda delta omega e@(ExprReference (RefParameter name)) = 
+checkTFldRef cls enums lambda delta omega e@(ExprReference (RefField name)) = 
     Just $ checkTFldRef' cls enums lambda delta omega e
 checkTFldRef cls enums lambda delta omega _ = Nothing
 
 checkTFldRef' :: ExprCheckInternal
-checkTFldRef' cls enums lambda delta omega (ExprReference (RefParameter name)) = do
+checkTFldRef' cls enums lambda delta omega (ExprReference (RefField name)) = do
     let lstEl = lastDelta delta
     (o, s) <- fromMaybe (Left "Wrong stack size in TFldRef") $ Right <$> lstEl
-    let par = envLookup lambda o
-    ((c, t), envTf) <- fromMaybe (Left "Could not find variable in lambda") $ Right <$> par
+    t <- ("could not find varaible " ++ name) ~~ lookupLambda lambda o name
     if lin t then
         Right (t, (updateLambda lambda o name BotType), delta, omega)
     else 
@@ -338,7 +367,8 @@ checkTCallF cls enums lambda delta omega _ = Nothing
 checkTCallF' :: ExprCheckInternal
 checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
     -- TODO: Figure out if we should include multiple transitions here
-    (t, lambda', delta', omega') <- maybeEitherToEither "Could not typecheck parameter expression" $ checkExpression cls enums lambda delta omega e
+    (t, lambda', delta', omega') <- maybeEitherToEither "Could not typecheck parameter expression" $ 
+                                    checkExpression cls enums lambda delta omega e
     let lstEl = lastDelta delta
     let lstEl' = lastDelta delta'
     (o, s) <- fromMaybe (Left "Wrong stack size in TCallF") $ Right <$> lstEl
@@ -347,11 +377,11 @@ checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
     ftype <- fromMaybe (Left "Could not find field in TCallF") $ Right <$> lookupLambda lambda' o f
     case ftype of 
         (CType (c, usage)) -> do
-            let resultingUsages = filterUsages m $ transitions usage
-            assert' (length resultingUsages > 0) "No transitions available for method call" $ do
+            let resultingUsages =  filterUsages m $ transitions usage
+            assert' (length resultingUsages > 0) ("No transitions available for method call " ++ m)  $ do
             let w =  head resultingUsages
             let (Method tret _ ptype _ _) = getMethod cls c m
-            assert' (t == ptype) "Wrong parameter type in TCallF" $ do
+            assert' (t == ptype) ("Wrong parameter type in TCallF " ++ show t ++ " expected " ++ show ptype)$ do
             Right $ (tret, (updateLambda lambda' o f (CType (c, w))), delta', omega')
         _ -> Left "Invalid type for field"
 
@@ -451,7 +481,8 @@ checkTSwP'' cls enums lambda delta omega expr usage transition = do
     (o, (x, t)) <- maybeToEither "Left wrong stack size" lastEl
     case t of 
         (CType (c, _)) -> let delta' = initDelta delta `with` (o, (x, (CType (c, usage'))))
-                          in "check expression failed" ~~ checkExpression cls enums lambda delta' omega expr'
+                              result = "check expression failed" ~~ checkExpression cls enums lambda delta' omega expr'
+                          in result
         _              -> Left "failed to lookup type"
     where switchExpr' (ExprSwitch _ _ choices) = 
                 "could not find transition in switch checkTSwP" ~~ envLookup choices transition
@@ -473,7 +504,7 @@ checkTSwF' cls enums lambda delta omega expr@(ExprSwitch (RefField f) e _) = do
     (o', s') <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
     assert' (o == o') "Objects does not match in TSwP" $ do
     ftype <- maybeToEither "could not find fild in CheckTSwF" $ lookupLambda lambda'' o f
-    lbls <- ("failed to lookup enum" ~~  lookupLabels t enums)
+    lbls <- "failed to lookup enum" ~~  lookupLabels t enums
     usage <- "must be a classtype" ~~ findUsage ftype
     transitions <- availableChoices usage
     assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
@@ -481,7 +512,7 @@ checkTSwF' cls enums lambda delta omega expr@(ExprSwitch (RefField f) e _) = do
     -- todo check all transitions end up in the same state 
     let afterTransition = map (checkTSwF'' cls enums lambda'' delta'' omega'' expr usage f) transitions
     let (failed, succeeded) = partitionEithers afterTransition    
-    assert' (null failed) "some transitions failed" $ do
+    assert' (null failed) ("some transitions failed " ++ show failed) $ do
     let compareable = head succeeded 
     assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
     compareable
@@ -490,36 +521,37 @@ checkTSwF'' cls enums lambda delta omega expr usage f transition = do
     expr' <- switchExpr' expr     
     usage' <- doTransition transition usage
     let lastEl = lastDelta delta 
-    (o, (x, t)) <- maybeToEither "Left wrong stack size" lastEl
+    (o, _) <- maybeToEither "Left wrong stack size" lastEl
+    t <- "failed to find field" ~~ lookupLambda lambda o f
     case t of 
         (CType (c, _)) -> let lambda' = updateLambda lambda o f (CType (c, usage'))
                           in "check expression failed" ~~ checkExpression cls enums lambda' delta omega expr'
-        _              -> Left "failed to lookup type"
+        _              -> Left $ "failed to lookup type " ++ show t 
     where switchExpr' (ExprSwitch _ _ choices) = 
                 "could not find transition in switch checkTSwF" ~~ envLookup choices transition
           switchExpr' _                        = 
                 Left $ "could not find transition in switch checkTSwF"
  
 
-
-
 checkTProg :: [Class] -> [EnumDef] -> Either String ()
 checkTProg cls enums = 
-    trace "checkTProg" $ checkTProg' cls enums cls
+    checkTProg' cls enums cls
 
 checkTProg' cls enums [] = Right ()
 checkTProg' cls enums (c:cs) = 
     let checkTClassRes = checkTClass cls enums c
         checkTProgRes = checkTProg' cls enums cs
         res = checkTClassRes >> checkTProgRes
-    in trace ("checkTProg' " ++ show res) res
+    in res
 
 checkTClass :: [Class] -> [EnumDef] -> Class -> Either String ()
 checkTClass cls enums c = 
     let term = checkTUsage cls enums [] (initFields (cfields c)) c (cusage c) 
-    in trace "checkTClass" $ if terminatedEnv term 
-            then Right () 
-            else Left "Invalid terminal env"
+        term' = "checkTUSage failed" `maybeEitherToEither` term
+    in  term' >>= \term'' -> 
+            if isJust term'' && terminatedEnv (fromJust term'')
+                then Right () 
+                else Left "Invalid terminal env"
 
 initFields :: [Field] -> [(FieldName, Type)]
 initFields [] = []
@@ -528,32 +560,38 @@ initFields ((Field (ClassFieldType c) name):flds) = (name, BotType):(initFields 
 
 terminatedEnv :: FieldTypeEnv -> Bool
 terminatedEnv [] = True
-terminatedEnv ((n, t):env) = lin t && terminatedEnv env
+terminatedEnv ((n, t):env) = not (lin t) && terminatedEnv env
 
 checkTUsage :: UsageCheck
-checkTUsage cls enums theta envTf c usage = trace "tUsage" $
-                            checkTCBr  cls enums theta envTf c usage
-                        <|> checkTCCh  cls enums theta envTf c usage
-                        <|> checkTCEn  cls enums theta envTf c usage
-                        <|> checkTCVar cls enums theta envTf c usage
-                        <|> checkTCRec cls enums theta envTf c usage
+checkTUsage cls enums theta envTf c usage = 
+    checkTCBr  cls enums theta envTf c usage
+    <|> checkTCCh  cls enums theta envTf c usage
+    <|> checkTCEn  cls enums theta envTf c usage
+    <|> checkTCVar cls enums theta envTf c usage
+    <|> checkTCRec cls enums theta envTf c usage
+    
 
-allEqual :: Eq a => [a] -> Bool
-allEqual [] = True
-allEqual (a:[]) = True
-allEqual (a:b:lst) = (a == b) && (allEqual (b:lst))
-
+allEqual :: [FieldTypeEnv] -> Bool
+allEqual []        = True
+allEqual (a:[])    = True
+allEqual (a:b:lst) = a === b && allEqual (b:lst)
+    
 findMethod :: [Method] -> String -> Method
-findMethod ms m = head $ filter (\ml -> (mname ml) == m) ms
+findMethod ms m = 
+     head $ filter (\ml -> (mname ml) == m) ms
 
 checkTCBr :: UsageCheck
 checkTCBr cls enums theta envTf c (Usage (UsageBranch lst) bindings) = 
     let bres = map (\(s,i) -> checkTCBr' cls enums theta envTf c s (s, i, bindings)) lst
         errors = lefts bres
         envs = rights bres
-        envsToCheck = catMaybes envs in
-            if allEqual envsToCheck then trace "tcbr" $ Just $ Right $ Just $ head envsToCheck
-            else trace "tcbr" $ Just $ Left "Environments do not match TCBr"
+        envsToCheck = catMaybes envs 
+    in case True of
+        True | not (null errors)    -> Just . Left $ unlines errors
+             | (null envsToCheck)   -> Just $ Right $ Nothing
+             | allEqual envsToCheck -> Just $ Right $ Just $ head envsToCheck
+             | otherwise            -> Just $ Left "Environments do not match TCBr"
+checkTCBr cls enums theta envTf c _ = Nothing
 
 terminated = not . lin
 
@@ -563,33 +601,42 @@ checkTCBr' cls enums theta envTf c mname (label, uimpl, bindings) = do
         lambda = [("this", ((cname c, CType (cname c, Usage uimpl bindings)), envTf))]
         delta = ([], [("this", (parname method, partype method))]) 
         theta = []
-    (ti', lambda', delta', theta') <-  "test" `maybeEitherToEither` checkExpression cls enums lambda delta [] (mexpr method)
+    (ti', lambda', delta', theta') <- "check expression failed in tcbr" `maybeEitherToEither` checkExpression cls enums lambda delta [] (mexpr method)
     let lstEl = lastDelta delta'
     (o, (pname, ti'')) <- fromMaybe (Left "Wrong stack size in TCBr") $ Right <$> lstEl
-    (_, envTf'') <- fromMaybe (Left "Bla") $ Right <$> envLookup lambda "this"
-    assert' (ti'' == (partype method)) "Wrong resulting parameter type TCBr" $ do
+    (_, envTf'') <- fromMaybe (Left "Bla") $ Right <$> envLookup lambda' "this"
+    --assert' (ti'' == (partype method)) "Wrong resulting parameter type TCBr" $ do
     assert' (terminated ti'') "Parameter must be terminated TCBr" $ do
-    fromJust $ checkTUsage cls enums theta envTf'' c (Usage uimpl bindings)
-
+    let res = fromJust $ checkTUsage cls enums theta envTf'' c (Usage uimpl bindings)
+    res
 
 checkTCCh :: UsageCheck
 checkTCCh cls enums theta envTf c (Usage (UsageChoice lst) bindings) = 
-    let finals = catMaybes $ map (\(label, usage) -> checkTUsage cls enums theta envTf c (Usage usage bindings)) lst
-        actualEnvs = rights finals in
-            if length finals/= length actualEnvs then Just $ Left "Could not typecheck usage in TCCh" else
-                if null actualEnvs then Just $ Left "TCCh no terminal envs" else
-                    if allEqual actualEnvs then Just $ Right (head actualEnvs) else Just $ Left "Final envs do not match TTCh"
+    let finals' = map (\(label, usage) -> checkTUsage cls enums theta envTf c (Usage usage bindings)) lst
+        finals =  catMaybes $ finals'
+        actualEnvs = catMaybes $ rights finals  
+    in Just $ case True of 
+        True -- | length finals /= length actualEnvs -> Left "Could not typecheck usage in TCCh" 
+             | null actualEnvs                    -> Right Nothing
+             | allEqual actualEnvs                -> Right . Just $ (head actualEnvs) 
+             | otherwise                          -> Left "Final envs do not match TTCh"
+checkTCCh cls enums theta envTf c _ = Nothing
 
 checkTCEn :: UsageCheck
 checkTCEn cls enums theta envTf c (Usage UsageEnd _) = 
     Just $ Right $ Just envTf
+checkTCEn cls enums theta envTf c _ = Nothing
+
 
 checkTCVar :: UsageCheck
 checkTCVar cls enums theta envTf c (Usage (UsageVariable x) us)  = do
-    envLookup us x
-    Just $ Right $ Nothing
+    if isNothing $ envLookup us x
+        then Just $ Right $ Nothing
+        else Nothing
+checkTCVar cls enums theta envTf c _ = Nothing
 
 checkTCRec :: UsageCheck
 checkTCRec cls enums theta envTf c (Usage (UsageVariable x) us) = do
     u <- us `envLookup` x
     checkTUsage cls enums ((x, envTf) : theta) envTf c (Usage u (us `without` x))
+checkTCRec cls enums theta envTf c _ = Nothing

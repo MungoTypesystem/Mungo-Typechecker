@@ -263,7 +263,7 @@ parseAssignExpr :: Parser CstExpression
 parseAssignExpr = 
     do var <- identifier
        reserved "="
-       expr <- parseExpr 
+       expr <- parseExpr' 
        return $ CstExprAssign var expr 
 
 parseSeqExpr :: Parser CstExpression

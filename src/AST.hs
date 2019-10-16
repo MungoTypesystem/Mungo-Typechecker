@@ -61,7 +61,7 @@ data Reference = RefParameter ParameterName
 
 data Expression = ExprNew ClassName 
                 | ExprAssign FieldName Expression
-                | ExprCall Reference MethodName Expression
+                | ExprCall Reference MethodName  Expression
                 | ExprSeq Expression Expression
                 | ExprIf Expression Expression Expression
                 | ExprLabel String Expression 

@@ -19,6 +19,7 @@ type BuilderData = [ClassInfo]
 
 data ClassInfo = ClassInfo { cName  :: String
                            , mInfo :: [MethodInfo]
+                           , recUsages :: [(String, UsageImpl)]
                            } deriving Show
 
 data MethodInfo = MethodInfo { mName  :: String
@@ -27,7 +28,7 @@ data MethodInfo = MethodInfo { mName  :: String
                              } deriving Show
 
 findMethodInfo :: String -> ClassInfo -> Maybe MethodInfo
-findMethodInfo name (ClassInfo _ methods) = 
+findMethodInfo name (ClassInfo _ methods _) = 
     let found = filter ((== name) . mName) methods
     in if null found
         then Nothing
@@ -57,11 +58,19 @@ createClassInfo cls =
     let fieldNames = map fieldName $ classFields cls
         methodInfo = map (createMethodInfo fieldNames) $ classMethods cls
         name       = className cls
-    in ClassInfo name methodInfo
+        recUsages  = convertUsageList (classRecUsage cls)
+    in ClassInfo name methodInfo recUsages
 
 createMethodInfo :: [String] -> CstMethod -> MethodInfo
 createMethodInfo fields method = 
     MethodInfo (methodName method) (parameterName method) fields
+
+lookupRecUsages :: [ClassInfo] -> String -> Maybe [(String, UsageImpl)]
+lookupRecUsages clsInfo name =
+    let found = filter ((name ==) . cName) clsInfo 
+    in if (null found)
+            then Nothing
+            else Just . recUsages $ head (found)
 
 -- converter
 convertEnums :: CstEnum -> EnumDef
@@ -84,12 +93,12 @@ convertClass global classesData cls =  do
           name            = cName classInfo
           fields          = map (convertField global) (classFields cls)
           classData       = filter ((== className cls). cName) classesData
-          convertedMethod = map (convertMethod global (head classData) recursiveU) (classMethods cls)
+          convertedMethod = map (convertMethod global classesData (head classData) recursiveU) (classMethods cls)
 
-convertMethod :: GlobalDefinitions -> ClassInfo -> [(String, UsageImpl)] -> CstMethod  -> Either String Method 
-convertMethod global classInfo recUsages method = do
+convertMethod :: GlobalDefinitions -> BuilderData -> ClassInfo -> [(String, UsageImpl)] -> CstMethod  -> Either String Method 
+convertMethod global classesData classInfo recUsages method = do
     mType'  <-  mType
-    mpType' <- mpType
+    mpType' <- trace ("test" ++ show mpTypeUsage ++ "  " ++ parameterType method) $ mpType
     expr'   <- expr
     Right $ Method mType' mName mpType' mpName expr' 
     where className   = cName classInfo
@@ -99,8 +108,9 @@ convertMethod global classInfo recUsages method = do
                         \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
           mpName      = parameterName method
           mpType      = convertType global (parameterType method) mpTypeUsage 
-          mpTypeUsage = parameterTypeUsage method >>=
-                        \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
+          mpTypeUsage = parameterTypeUsage method >>= \cstUsage -> 
+                        lookupRecUsages classesData (parameterType method) >>= \recUsages' -> 
+                        Just $ Usage (convertUsage cstUsage) recUsages'
 
           mInfo       = fromMaybe (Left "unable to find methodInfo") $ Right <$> mName `findMethodInfo` classInfo 
           expr        = mInfo >>= \mInfo' -> convertExpression global mInfo' (methodExpr method)
@@ -205,7 +215,7 @@ convertSwitch :: GlobalDefinitions -> MethodInfo -> CstExpression -> [(String, C
 convertSwitch global methodInfo expr matches =  
     do call' <- call
        case call' of 
-            (ExprCall ref' _ expr') -> ExprSwitch ref' expr' <$> matches'
+            (ExprCall ref' _ expr') -> ExprSwitch ref' call' <$> matches'
             _                       -> Left $ "failed to convert call"
     where (CstExprCall ref method param) = expr
 
@@ -227,7 +237,7 @@ convertToParameter global methodInfo name
 
 convertToField :: GlobalDefinitions -> MethodInfo -> String -> Either String Reference 
 convertToField global methodInfo name
-    | name `elem` fNames methodInfo = Right $ RefParameter name
+    | name `elem` fNames methodInfo = Right $ RefField name
     | otherwise                     = Left $ "field not found " ++ name
 
 convertToLiteral :: GlobalDefinitions -> MethodInfo -> String -> Either String Expression

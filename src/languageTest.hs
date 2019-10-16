@@ -1,3 +1,5 @@
+module LanguageTest where
+
 import MungoParser 
 import AstTransformer
 import AST 
@@ -7,7 +9,7 @@ import SanityCheck
 import TypeSystem
 
 simpleFile = 
-    "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/VerySimple.mg"
+    "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/FileExample3.mg"
 
 
 runFile :: String -> IO ()
@@ -18,25 +20,26 @@ runFile s = do
 
 checkCST :: CstProgram -> IO ()
 checkCST prog = do
-    putStrLn . show $ prog
-    let check = sanityCheck [prog] >> []
+    --putStrLn . show $ prog
+    let check = sanityCheck [prog] 
     if not $ null check
-        then forM_ check putStrLn
+        then forM_ check putStrLn >> putStrLn ("error in sanity " ++ show check)
         else convertCST prog
 
 convertCST :: CstProgram -> IO ()
 convertCST prog = do
-    putStrLn . show $ prog
+    --putStrLn . show $ prog
     let converted = convertProgram prog
+    --either putStrLn printV converted
     either putStrLn typeCheck converted
 
 typeCheck :: ([Class], [EnumDef]) -> IO ()
 typeCheck (classes, enums) = do 
-    putStrLn "enums:"
+    {--putStrLn "enums:"
     forM_ enums (putStrLn . show)
     putStrLn "classes:"
-    forM_ classes (putStrLn . show)
-    let typeCheck = checkTProg classes enums
+    forM_ classes (putStrLn . show)--}
+    let typeCheck = checkTProg classes enums 
     putStrLn $ show typeCheck
     return ()
 
