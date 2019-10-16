@@ -3,7 +3,13 @@ enum asd { one two three }
 enum asd { one four }
 
 class test {
-    {test2 ; < a : { foo ; S } b : { foo ; end } > } [ S = { test2 ; < a : { foo ; S } b : { foo ; end } > } ]
+    Init[
+        Init = {
+            init; Stopable
+        }
+        Stopable = {x; XStopable}
+        XStopable = {push; end}
+    ]
 
     void m
     test2 y
