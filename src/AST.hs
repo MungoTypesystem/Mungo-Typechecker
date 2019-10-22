@@ -7,11 +7,19 @@ type ParameterName = String
 type ObjectName = String
 type LabelName = String
 type UsageVarName = String
+type GenericClassName = String
+type GenericUsageName = String
 data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq)
 
-type Typestate = (ClassName, Usage)
 
-data FieldType = ClassFieldType ClassName
+data GenericType = GenericBotType
+                 | GenericClass ClassName GenericType Usage 
+                   deriving (Show, Eq)
+
+type Typestate = (ClassName, GenericType, Usage)
+
+data FieldType = ClassFieldType        ClassName
+               | ClassGenericFieldType ClassName ClassName Usage
                | BaseFieldType BaseType
                deriving (Show, Eq)
 
@@ -23,8 +31,8 @@ data Type = BType BaseType
 data EnumDef = EnumDef String [LabelName]
                 deriving (Show)
 
-data Class = Class {
-                     cname    :: ClassName,
+data Class = Class { cname    :: ClassName,
+                     cGeneric :: GenericType,
                      cusage   :: Usage,
                      cfields  :: [Field],
                      cmethods :: [Method]

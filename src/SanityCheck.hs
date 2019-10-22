@@ -95,7 +95,7 @@ sanityCheckEnums programs =
 -- CLASS CHECKING
 -- Combines errors from sub-class checkers.
 sanityCheckClass :: CstClass -> [String]
-sanityCheckClass cls@(CstClass name usage recusage fields methods) =
+sanityCheckClass cls@(CstClass name _ usage recusage fields methods) =
     usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs
     where 
         usageErrs     = sanityCheckUsageRecVariables usage recusage
@@ -196,7 +196,7 @@ buildUsageGraph usage recUsage =
         edges      = recEdges ++ usageEdges
 
 sanityCheckUsageGoesToEnd :: CstClass -> String
-sanityCheckUsageGoesToEnd (CstClass name usage recUsage _ _) =
+sanityCheckUsageGoesToEnd (CstClass name _ usage recUsage _ _) =
     if (length notEnd) > 0 
         then "Usage does not go to end in class " ++ name
     else []

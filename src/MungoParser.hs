@@ -1,12 +1,13 @@
 module MungoParser( CstProgram (progClasses, progEnums)
-                  , CstClass (CstClass, className, classFields, classMethods, classUsage, classRecUsage)
+                  , CstClass (CstClass, className, classGeneric, classFields, classMethods, classUsage, classRecUsage)
                   , CstEnum (CstEnum, enumName, enumLabels)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch, CstUsageVariable)
                   , CstField (CstField, fieldType, fieldName)
                   , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType, methodTypeUsage, parameterTypeUsage, methodExpr)
                   , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier)
+                  , CstType (CstSimpleType, typeSimpleName, CstClassType, typeClassName, typeClassUsage)
                   , parseProgram
-                  , testSwitch ) where
+                  , testType, testType2, testType3 ) where
 
 import System.IO
 import Control.Monad
@@ -16,26 +17,27 @@ import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 import Control.Arrow (left)
+import Data.Maybe
 
-testSwitch = parse parseSwitchExpr ""
+testType = parse parseType ""
+testType2 = parse parseMethod ""
+testType3 = parse parseExpr ""
 
 data CstProgram = CstProgram { progEnums   :: [CstEnum]
                              , progClasses :: [CstClass] 
-                             }
-                  deriving (Show)
+                             } deriving (Show)
 
 data CstEnum = CstEnum { enumName :: String 
                        , enumLabels :: [String]
-                       }
-               deriving (Show)
+                       } deriving (Show)
 
 data CstClass = CstClass { className     :: String
+                         , classGeneric  :: Maybe (String, String) 
                          , classUsage    :: CstUsage
                          , classRecUsage :: [(String, CstUsage)]
                          , classFields   :: [CstField]
                          , classMethods  :: [CstMethod]
-                         }
-                deriving (Show)
+                         } deriving (Show)
 
 
 data CstUsage = CstUsageChoice [(String, CstUsage)]
@@ -44,22 +46,36 @@ data CstUsage = CstUsageChoice [(String, CstUsage)]
               | CstUsageEnd
                 deriving (Show, Eq)
 
-data CstField = CstField { fieldType :: String
-                         , fieldName :: String 
+data CstGenInstance = CstGenInstance { genName      :: String
+                                     , genRecurisve :: CstGenInstance
+                                     , genUsage     :: CstUsage 
+                                     }
+                    | CstGenBot
+                        deriving (Show)
+
+data CstType = CstSimpleType{ typeSimpleName :: String } 
+             | CstClassType { typeClassName  :: String
+                            , typeGeneric    :: CstGenInstance
+                            , typeClassUsage :: CstUsage
+                            } deriving (Show)
+
+data CstField = CstField { fieldType    :: String 
+                         , fieldGen     :: CstGenInstance
+                         , fieldName    :: String 
                          } 
                 deriving (Show)
 
-data CstMethod = CstMethod { methodType         :: String
+data CstMethod = CstMethod { methodType         :: CstType 
                            , methodTypeUsage    :: Maybe CstUsage 
                            , methodName         :: String
-                           , parameterType      :: String
+                           , parameterType      :: CstType 
                            , parameterTypeUsage :: Maybe CstUsage 
                            , parameterName      :: String
                            , methodExpr         :: CstExpression
                            }
                  deriving (Show)
 
-data CstExpression = CstExprNew String
+data CstExpression = CstExprNew String CstGenInstance 
                    | CstExprAssign String CstExpression
                    | CstExprCall String String CstExpression
                    | CstExprSeq CstExpression CstExpression
@@ -138,26 +154,35 @@ parseClass :: Parser CstClass
 parseClass =
     do reserved "class" 
        className <- identifier 
+       generic   <- optionMaybe parseClassGeneric
        braces $ do 
             (usage, recursiveUsage) <- parseUsage
             fields                  <- parseFields
             methods                 <- parseMethods
-            return $ CstClass className usage recursiveUsage fields methods 
+            return $ CstClass className generic usage recursiveUsage fields methods 
+
+parseClassGeneric:: Parser (String, String) 
+parseClassGeneric = angles parseGeneric'
+        where parseGeneric' = 
+                    do name <- identifier
+                       usage <- brackets identifier 
+                       return (name, usage) 
+
 
 parseMethods :: Parser [CstMethod]
 parseMethods = parseMethod `manyTill` lookAhead (reserved "}")
 
 parseMethod :: Parser CstMethod
 parseMethod =
-    do returnType                                         <- identifier
+    do returnType                                         <- parseType
        returnTypeUsage                                    <- optionMaybe $ brackets parseBranchUsage
        methodName                                         <- identifier
        (parameterType, parameterTypeUsage, parameterName) <- parens parseParameter
        body                                               <- braces parseExpr
        return $ CstMethod returnType returnTypeUsage methodName parameterType parameterTypeUsage parameterName body
-    where parseParameter :: Parser (String, Maybe CstUsage, String)
+    where parseParameter :: Parser (CstType, Maybe CstUsage, String)
           parseParameter = 
-                do paramenterType     <- identifier
+                do paramenterType     <- parseType 
                    parameterTypeUsage <- optionMaybe $ brackets parseBranchUsage
                    parameterName      <- identifier
                    return (paramenterType, parameterTypeUsage, parameterName)
@@ -168,10 +193,37 @@ parseFields =  parseField `manyTill` lookAhead (try parseMethod)
 
 parseField :: Parser CstField
 parseField =
-    do fieldtype <- identifier
+    do fieldtype <- identifier 
+       fieldGen <- parseGeneric
        fieldname <- identifier
-       return $ CstField fieldtype fieldname
-       
+       return $ CstField fieldtype fieldGen fieldname
+
+parseType :: Parser CstType 
+parseType =  parseTypeClass
+          {-- <|> simple
+    where simple   = CstSimpleType <$> identifier --}
+
+parseTypeClass :: Parser CstType
+parseTypeClass = 
+    do name    <- identifier
+       res <- optionMaybe $ do generic <- parseGeneric
+                               usage   <- brackets parseBranchUsage
+                               return $ CstClassType name generic usage
+       return $ fromMaybe (CstSimpleType name) res
+
+-- either empty or <C<..>[U]>
+parseGeneric :: Parser CstGenInstance
+parseGeneric = (angles parseGenericAngle) <|> parseGenericNothing
+
+parseGenericNothing :: Parser CstGenInstance
+parseGenericNothing = return CstGenBot
+
+parseGenericAngle :: Parser CstGenInstance
+parseGenericAngle = do
+    cname  <- identifier
+    recGen <- parseGeneric
+    usage  <- brackets parseBranchUsage
+    return $ CstGenInstance cname recGen usage
 
 parseUsage :: Parser (CstUsage, [(String, CstUsage)])
 parseUsage = do
@@ -256,8 +308,9 @@ parseCallExpr =
 parseNewExpr :: Parser CstExpression
 parseNewExpr =
     do reserved "new"
-       var <- identifier
-       return $ CstExprNew var
+       name <- identifier
+       gen <- parseGeneric
+       return $ CstExprNew name gen
 
 parseAssignExpr :: Parser CstExpression
 parseAssignExpr = 
@@ -315,7 +368,6 @@ parseConstValuesExpr =
     <|> (reserved "false" >> return (CstExprBoolConst False))
     <|> (reserved "null"  >> return CstExprNull)
     <|> (reserved "unit"  >> return CstExprUnit)
-
 
 
 parseIdentifierExpr :: Parser CstExpression

@@ -9,6 +9,9 @@ import Data.Either
 import Debug.Trace
 -- helper data
 
+(<?>) :: Maybe b -> a -> Either a b
+v <?> s = fromMaybe (Left s) $ Right <$> v
+
 data GlobalDefinitions = GlobalDefinitions { cNames :: [String]
                                            , enumNames :: [String]
                                            , enumValues :: [String]
@@ -65,11 +68,11 @@ createMethodInfo fields method =
     MethodInfo (methodName method) (parameterName method) fields
 
 lookupRecUsages :: [ClassInfo] -> String -> Maybe [(String, UsageImpl)]
-lookupRecUsages clsInfo name =
+lookupRecUsages clsInfo name = -- error "not implemented"
     let found = filter ((name ==) . cName) clsInfo 
     in if (null found)
             then Nothing
-            else Just . recUsages $ head (found)
+            else Just . recUsages $ head (found) 
 
 -- converter
 convertEnums :: CstEnum -> EnumDef
@@ -77,36 +80,40 @@ convertEnums cstEnum = EnumDef (enumName cstEnum) (enumLabels cstEnum)
 
 convertClass :: GlobalDefinitions -> BuilderData -> CstClass -> Either String Class 
 convertClass global classesData cls =  do
-    let (failedFields, succeededFields)   = partitionEithers fields
-    let (failedMethods, succeededMethods) = partitionEithers convertedMethod 
-    
     if not $ null failedFields
         then Left $ "failed to convert fields " ++ concat failedFields
         else if not $ null failedMethods 
                 then Left $ "failed to convert methods " ++ concat failedMethods
-                else Right $ Class name (Usage usage recursiveU) succeededFields succeededMethods
+                else Right $ Class name convertedGeneric (Usage usage recursiveU) succeededFields succeededMethods
     where 
-          usage           = convertUsage (classUsage cls)
-          recursiveU      = convertUsageList (classRecUsage cls)
-          classInfo       = createClassInfo cls
-          name            = cName classInfo
-          fields          = map (convertField global) (classFields cls)
-          classData       = filter ((== className cls). cName) classesData
-          convertedMethod = map (convertMethod global classesData (head classData) recursiveU) (classMethods cls)
+          usage            = convertUsage (classUsage cls)
+          recursiveU       = convertUsageList (classRecUsage cls)
+          classInfo        = createClassInfo cls
+          name             = cName classInfo
+          fields           = map (convertField global) (classFields cls)
+          classData        = filter ((== className cls). cName) classesData
+          convertedMethods = map (convertMethod global classesData (head classData) recursiveU) (classMethods cls)
+          convertedGeneric = GenericBotType `fromMaybe` (convertGenericClass <$> classGeneric cls )
+
+          (failedFields, succeededFields)   = partitionEithers fields
+          (failedMethods, succeededMethods) = partitionEithers convertedMethods
+
+convertGenericClass :: (String, String) -> GenericType
+convertGenericClass = error "not implemented yet"
 
 convertMethod :: GlobalDefinitions -> BuilderData -> ClassInfo -> [(String, UsageImpl)] -> CstMethod  -> Either String Method 
 convertMethod global classesData classInfo recUsages method = do
-    mType'  <-  mType
+    mType'  <- mType
     mpType' <- mpType
     expr'   <- expr
     Right $ Method mType' mName mpType' mpName expr' 
     where className   = cName classInfo
           mName       = methodName method
-          mType       = convertType global (methodType method) mTypeUsage 
+          mType       = convertType global classesData (methodType method) mTypeUsage 
           mTypeUsage  = methodTypeUsage method >>=
                         \cstUsage -> Just $ Usage (convertUsage cstUsage) recUsages
           mpName      = parameterName method
-          mpType      = convertType global (parameterType method) mpTypeUsage 
+          mpType      = convertType global classesData (parameterType method) mpTypeUsage 
           mpTypeUsage = parameterTypeUsage method >>= \cstUsage -> 
                         lookupRecUsages classesData (parameterType method) >>= \recUsages' -> 
                         Just $ Usage (convertUsage cstUsage) recUsages'
@@ -114,23 +121,31 @@ convertMethod global classesData classInfo recUsages method = do
           mInfo       = fromMaybe (Left "unable to find methodInfo") $ Right <$> mName `findMethodInfo` classInfo 
           expr        = mInfo >>= \mInfo' -> convertExpression global mInfo' (methodExpr method)
           
-convertType :: GlobalDefinitions -> String -> Maybe Usage -> Either String Type 
-convertType global typeStr u
-    | typeStr == "void"                 = Right $ BType VoidType
-    | typeStr == "bool"                 = Right $ BType BoolType 
-    | typeStr `elem` (enumNames global) = Right $ BType $ EnumType typeStr
-    | typeStr `elem` (cNames global)    = if (isJust u) 
-                                            then Right (CType (typeStr, (fromJust u))) 
-                                            else Left $ "unable to convert to class type " ++ typeStr ++ " "
-    | otherwise                         = Left $ "unable to convert to Type " ++ typeStr ++ " "
-    
+convertType :: GlobalDefinitions -> BuilderData -> CstType -> Maybe Usage -> Either String Type 
+convertType global classesData myType u =
+    case myType of
+        (CstSimpleType name) | name == "void"                 -> 
+                                        Right $ BType VoidType
+                             | name == "bool"                 -> 
+                                        Right $ BType BoolType
+                             | name `elem` (enumNames global) -> 
+                                        Right $ BType $ EnumType name
+        (CstClassType name) | name `elem` (cNames global)    -> 
+                                        let u' = updateRecursiveUsage classesData name =<< (u <?> "no usage") 
+                                        in (\usage -> CType (name, GenericBotType, usage)) <$> u'
+        (CstGenClassType n gen u) | name `elem` (cNames)           -> 
+                                        
+                               
+
+   
 convertField :: GlobalDefinitions -> CstField -> Either String Field
 convertField global field = liftA2 Field fieldType' (return (fieldName field))
     where fieldType' = convertFieldType global (fieldType field)
 
-convertFieldType :: GlobalDefinitions -> String -> Either String FieldType
-convertFieldType global field =   BaseFieldType <$> convertBaseType global field
-                              <|> convertClassTypeField global field
+convertFieldType :: GlobalDefinitions -> CstType -> Either String FieldType
+convertFieldType global field = error "not implemented"
+                              {--   BaseFieldType <$> convertBaseType global field
+                              <|> convertClassTypeField global field --}
 
 convertClassTypeField :: GlobalDefinitions -> String -> Either String FieldType
 convertClassTypeField global name
@@ -143,6 +158,11 @@ convertBaseType global field
     | field == "bool"                 = Right $ BoolType
     | field `elem` (enumNames global) = Right $ EnumType field
     | otherwise                       = Left "cannot convert to base type"
+
+updateRecursiveUsage :: [ClassInfo] -> String -> Usage -> Either String Usage
+updateRecursiveUsage classes name usage =
+    let recursiveUsage = lookupRecUsages classes name <?> ("uable to find recursive usage for " ++ name) 
+    in (\rec' -> usage {recursiveUsages = rec'}) <$> recursiveUsage
 
 convertUsage :: CstUsage -> UsageImpl
 convertUsage (CstUsageChoice xs)  = UsageChoice $ convertUsageList xs
