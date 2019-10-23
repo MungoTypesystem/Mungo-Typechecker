@@ -12,30 +12,39 @@ type GenericUsageName = String
 data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq)
 
 
-data GenericType = GenericBotType
-                 | GenericClass ClassName GenericType Usage 
+data ClassGenericType = ClassNoGeneric 
+                      | ClassGeneric GenericClassName  GenericUsageName 
                    deriving (Show, Eq)
 
-type Typestate = (ClassName, GenericType, Usage)
+type Typestate = (ClassName, GenericInstance, Usage)
 
-data FieldType = ClassFieldType        ClassName
-               | ClassGenericFieldType ClassName ClassName Usage
+data GenericInstance = GenericBot 
+                     | GenericInstance { genericName      :: ClassName
+                                       , genericRecursive :: GenericInstance 
+                                       , genericUsage     :: Usage
+                                       } 
+                     | GenericClass GenericClassName GenericUsageName
+                        deriving (Show, Eq)
+
+data FieldType = ClassFieldGen ClassName GenericInstance
                | BaseFieldType BaseType
+               | GenericField 
                deriving (Show, Eq)
 
 data Type = BType BaseType 
           | CType Typestate
           | BotType
+          | GType 
           deriving (Show, Eq)
 
 data EnumDef = EnumDef String [LabelName]
                 deriving (Show)
 
-data Class = Class { cname    :: ClassName,
-                     cGeneric :: GenericType,
-                     cusage   :: Usage,
-                     cfields  :: [Field],
-                     cmethods :: [Method]
+data Class = Class { cname    :: ClassName
+                   , cGeneric :: ClassGenericType
+                   , cusage   :: Usage
+                   , cfields  :: [Field]
+                   , cmethods :: [Method]
                    } deriving (Show)
 
 data Usage = Usage { current :: UsageImpl
@@ -46,28 +55,25 @@ data UsageImpl = UsageChoice [(String, UsageImpl)]
                | UsageBranch [(String, UsageImpl)]
                | UsageVariable String
                | UsageEnd
+               | UsageGenericVariable
                  deriving (Show, Eq)
 
-data Field = Field { 
-                     ftype :: FieldType,
-                     fname :: FieldName 
-                   }
-             deriving (Show)
+data Field = Field { ftype :: FieldType
+                   , fname :: FieldName 
+                   } deriving (Show)
 
-data Method = Method {
-                    rettype :: Type, 
-                    mname :: MethodName,
-                    partype :: Type,
-                    parname :: ParameterName,
-                    mexpr :: Expression
-                    }
-              deriving (Show)
+data Method = Method { rettype :: Type
+                     , mname   :: MethodName
+                     , partype :: Type
+                     , parname :: ParameterName
+                     , mexpr   :: Expression
+                     } deriving (Show)
 
 data Reference = RefParameter ParameterName
                | RefField FieldName
                  deriving (Show)
 
-data Expression = ExprNew ClassName 
+data Expression = ExprNew ClassName GenericInstance
                 | ExprAssign FieldName Expression
                 | ExprCall Reference MethodName  Expression
                 | ExprSeq Expression Expression

@@ -1,8 +1,8 @@
 module LanguageTest where
 
 import MungoParser 
---import AstTransformer
---import AST 
+import AstTransformer
+import AST 
 import Data.Either
 import Control.Monad
 --import SanityCheck
@@ -19,7 +19,7 @@ runFile s = do
     either putStrLn (putStrLn . show) parsed
     --either putStrLn checkCST parsed
 
-{--checkCST :: CstProgram -> IO ()
+checkCST :: CstProgram -> IO ()
 checkCST prog = do
     let check = [] :: [String] --sanityCheck [prog] 
     if not $ null check

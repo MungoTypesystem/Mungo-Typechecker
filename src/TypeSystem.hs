@@ -17,8 +17,8 @@ type FieldTypeEnv = [(FieldName, Type)]
 ((n1, BType b1):xs1)     === ((n2, BType b2):xs2)     = n1 == n2 && b1 == b2 && xs1 == xs2
 ((n1, BotType ):xs1)     === ((n2, BotType):xs2)      = n1 == n2 && True && xs1 == xs2
 ((n1, CType c1):xs1)     === ((n2, CType c2):xs2)     = n1 == n2 && c1 == c2 && xs1 == xs2
-((n1, BotType) :xs1)     === ((n2, CType (_, u)):xs2) = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
-((n1, CType (_, u)):xs1) === ((n2, BotType):xs2)      = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
+((n1, BotType) :xs1)     === ((n2, CType (_, _, u)):xs2) = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
+((n1, CType (_, _, u)):xs1) === ((n2, BotType):xs2)      = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
 []                       === []                       = True
 _                        === _                        = False 
    
@@ -90,7 +90,7 @@ transitions' recU (UsageVariable str) =
 filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
  
 lin :: Type -> Bool
-lin (CType (cname, usage)) = current usage /= UsageEnd
+lin (CType (cname, _, usage)) = current usage /= UsageEnd
 lin _ = False
 
 
@@ -159,13 +159,13 @@ getLambdaField lambda oname fldname = do
 
 agree :: FieldType -> Type -> Bool
 agree (BaseFieldType b1) (BType b2)         = b1 == b2
-agree (ClassFieldType cn1) (CType (cn2, _)) = cn1 == cn2
-agree (ClassFieldType cn1) (BotType)        = True
+agree (ClassFieldGen cn1 gen1) (CType (cn2, gen2, _) ) = cn1 == cn2 && gen1 == gen2
+agree (ClassFieldGen cn1 gen) (BotType)        = True
 agree _ _ = False
 
 findCls :: [Class] -> String -> Maybe Class
 findCls [] _ = Nothing
-findCls (cls@(Class cn _ _ _):clss) name = if cn == name then Just cls else findCls clss name
+findCls (cls@(Class cn _ _ _ _):clss) name = if cn == name then Just cls else findCls clss name
 
 checkExpression :: ExprCheck
 checkExpression cls enums lambda delta omega e = 
@@ -189,11 +189,11 @@ checkExpression cls enums lambda delta omega e =
                                   <|> checkTFldRef cls enums lambda delta omega e
                                   <|> (Just . Left $ "failed to parse " ++ show e)
 
-checkTNew cls enums lambda delta omega (ExprNew cn) = 
+checkTNew cls enums lambda delta omega (ExprNew cn gen) = 
     let foundCls = findCls cls cn 
     in case foundCls of 
-            Just (Class clsname usage _ _) -> 
-                Just $ Right (CType (clsname, usage), lambda, delta, omega)
+            Just (Class clsname _ usage _ _) -> 
+                Just $ Right (CType (clsname, gen, usage), lambda, delta, omega)
             Nothing -> Just $ Left "Invalid class name in new"
 checkTNew cls enums lambda delta omega _ = Nothing
 
@@ -376,13 +376,13 @@ checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
     assert' (o == o') "Object names does not match in TCallF" $ do
     ftype <- fromMaybe (Left "Could not find field in TCallF") $ Right <$> lookupLambda lambda' o f
     case ftype of 
-        (CType (c, usage)) -> do
+        (CType (c, gen, usage)) -> do
             let resultingUsages =  filterUsages m $ transitions usage
             assert' (length resultingUsages > 0) ("No transitions available for method call " ++ m)  $ do
             let w =  head resultingUsages
             let (Method tret _ ptype _ _) = getMethod cls c m
             assert' (t == ptype) ("Wrong parameter type in TCallF " ++ show t ++ " expected " ++ show ptype)$ do
-            Right $ (tret, (updateLambda lambda' o f (CType (c, w))), delta', omega')
+            Right $ (tret, (updateLambda lambda' o f (CType (c, gen, w))), delta', omega')
         _ -> Left "Invalid type for field"
 
 checkTCallP :: ExprCheck
@@ -401,13 +401,13 @@ checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
     assert' (o == o') "Object names does not match in TCallP" $ do
     assert' (x == x') "Parameter names does not match in TCallP" $ do
     case t' of 
-        (CType (c, usage)) -> do
+        (CType (c, gen, usage)) -> do
             let resultingUsages = filterUsages m $ transitions usage
             assert' (length resultingUsages > 0) "No transitions available for method call" $ do
             let w =  head resultingUsages
             let (Method tret _ ptype _ _) = getMethod cls c m
             assert' (t == ptype) "Wrong parameter type in TCallP" $ do
-            Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, w)))), omega')
+            Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, gen, w)))), omega')
         _ -> Left "Invalid type for field"
 
 lookupLabels :: Type -> [EnumDef] -> Maybe [String]
@@ -433,7 +433,7 @@ availableChoices usage = availableChoices' (current usage) (recursiveUsages usag
                          availableChoices' usage rec (r:lookedAt)
 
 findUsage :: Type -> Maybe Usage
-findUsage (CType (name, usage)) = Just usage 
+findUsage (CType (name, gen, usage)) = Just usage 
 findUsage _                     = Nothing
 
 doTransition :: String -> Usage -> Either String Usage
@@ -480,9 +480,10 @@ checkTSwP'' cls enums lambda delta omega expr usage transition = do
     let lastEl = lastDelta delta 
     (o, (x, t)) <- maybeToEither "Left wrong stack size" lastEl
     case t of 
-        (CType (c, _)) -> let delta' = initDelta delta `with` (o, (x, (CType (c, usage'))))
-                              result = "check expression failed" ~~ checkExpression cls enums lambda delta' omega expr'
-                          in result
+        (CType (c, gen, _)) ->  
+            let delta' = initDelta delta `with` (o, (x, (CType (c, gen, usage'))))
+                result = "check expression failed" ~~ checkExpression cls enums lambda delta' omega expr'
+            in result
         _              -> Left "failed to lookup type"
     where switchExpr' (ExprSwitch _ _ choices) = 
                 "could not find transition in switch checkTSwP" ~~ envLookup choices transition
@@ -524,7 +525,7 @@ checkTSwF'' cls enums lambda delta omega expr usage f transition = do
     (o, _) <- maybeToEither "Left wrong stack size" lastEl
     t <- "failed to find field" ~~ lookupLambda lambda o f
     case t of 
-        (CType (c, _)) -> let lambda' = updateLambda lambda o f (CType (c, usage'))
+        (CType (c, gen, _)) -> let lambda' = updateLambda lambda o f (CType (c, gen, usage'))
                           in "check expression failed" ~~ checkExpression cls enums lambda' delta omega expr'
         _              -> Left $ "failed to lookup type " ++ show t 
     where switchExpr' (ExprSwitch _ _ choices) = 
@@ -556,7 +557,8 @@ checkTClass cls enums c =
 initFields :: [Field] -> [(FieldName, Type)]
 initFields [] = []
 initFields ((Field (BaseFieldType b) name):flds) = (name, BType b):(initFields flds)
-initFields ((Field (ClassFieldType c) name):flds) = (name, BotType):(initFields flds)
+initFields ((Field (ClassFieldGen c gen) name):flds) = (name, BotType):(initFields flds)
+initFields ((Field GenericField name):flds) = error "Wrong field type, not instantiated"
 
 terminatedEnv :: FieldTypeEnv -> Bool
 terminatedEnv [] = True
@@ -598,7 +600,7 @@ terminated = not . lin
 checkTCBr' :: [Class] -> [EnumDef] -> RecursiveEnv -> FieldTypeEnv -> Class -> String -> (String, UsageImpl, [(String, UsageImpl)]) -> Either String (Maybe FieldTypeEnv)
 checkTCBr' cls enums theta envTf c mname (label, uimpl, bindings) = do
     let method = findMethod (cmethods c) mname
-        lambda = [("this", ((cname c, CType (cname c, Usage uimpl bindings)), envTf))]
+        lambda = [("this", ((cname c, CType (cname c, GenericBot, Usage uimpl bindings)), envTf))]
         delta = ([], [("this", (parname method, partype method))]) 
         theta = []
     (ti', lambda', delta', theta') <- "check expression failed in tcbr" `maybeEitherToEither` checkExpression cls enums lambda delta [] (mexpr method)
