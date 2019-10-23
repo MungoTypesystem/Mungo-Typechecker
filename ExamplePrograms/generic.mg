@@ -9,7 +9,7 @@ class id <C[U]> {
 	}
 }
 
-class C {
+class B {
 	{id; end}[]
 	
 	bool id(bool x) {
@@ -20,11 +20,14 @@ class C {
 class main {
 	{main; end}[]
 	
-	id<C[{id;end}]> i
+	id<B[{id;end}]> i
+	B b
 	
 	void main(void x) {
-		i = new id<C[{id;end}]>;
-		i.id(true);
+		b = new B;
+		i = new id<B[{id;end}]>;
+		b = i.identity(b);
+		b.id(true);
 		unit
 	}
 }
