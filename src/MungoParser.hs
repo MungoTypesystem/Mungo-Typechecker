@@ -7,8 +7,6 @@ module MungoParser( CstProgram (progClasses, progEnums)
                   , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier)
                   , CstType (CstSimpleType, typeSimpleName, CstClassType, typeClassName, typeClassUsage, typeGeneric)
                   , CstGenInstance (genName, genRecurisve, genUsage, CstGenInstance, CstGenBot)
-                  , CstType (CstSimpleType, typeSimpleName, CstClassType, typeClassName, typeClassUsage)
-                  , CstGenInstance (CstGenInstance, CstGenBot)
                   , parseProgram
                   , testType, testType2, testType3 ) where
 
