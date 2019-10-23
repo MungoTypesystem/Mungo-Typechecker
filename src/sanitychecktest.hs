@@ -13,10 +13,11 @@ sequence' l (x:xs) = do
     x' <- x
     sequence' (x':l) xs
 
-testFile1 = "../Mungo-Inference/ExamplePrograms/SimpleExample.mg"
-testFile2 = "../Mungo-Inference/ExamplePrograms/UseAnotherClassExample.mg"
+testFile1 = "../ExamplePrograms/SimpleExample.mg"
+testFile2 = "../ExamplePrograms/UseAnotherClassExample.mg"
+testFile3 = "../ExamplePrograms/generic.mg"
 
-readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1]
+readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile3]
 
 check = do
     program <- readFiles

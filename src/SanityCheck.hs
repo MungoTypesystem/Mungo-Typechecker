@@ -12,9 +12,15 @@ import Debug.Trace (trace)
 duplicates :: [String] -> [String]
 duplicates = map head . filter ((> 1) . length) . group
 
+convertStringToCstType :: [String] -> [CstType]
+convertStringToCstType (x:xs) = [CstSimpleType x] ++ convertStringToCstType xs
+convertStringToCstType _ = []
+
 getAllTypes :: [CstClass] -> [CstEnum] -> [CstType]
 getAllTypes classes enums = 
     [(CstSimpleType "void"), (CstSimpleType "bool")]
+    ++ convertStringToCstType classNames
+    ++ convertStringToCstType enumNames
     where
         classNames = map className classes
         enumNames  = map enumName enums
@@ -51,14 +57,60 @@ sanityCheckPrograms programs =
         methodTypeErrs    = concat $ map (`sanityCheckMethodTypes` supportedTypes) $ map classMethods classes
         classErrs         = concat $ map sanityCheckClass classes
 
+--- Check Types with generics
+    -- Check type names exist
+    -- Check the type names of type variables
+    -- Check recursive variables of a generic usage does not overlap with 
+    --   the recusive variables of the class declaration.
+typeNameFromCstType :: CstType -> String
+typeNameFromCstType t = case t of
+                            (CstSimpleType n) -> n
+                            (CstClassType n _ _) -> n
+
+typeNameFromCstGenInstance :: CstGenInstance -> String
+typeNameFromCstGenInstance gen = 
+    case gen of
+        (CstGenInstance n _ _) -> n
+        (CstGenBot) -> "//Bot"
+
+cstGenFromCstType :: CstType -> CstGenInstance
+cstGenFromCstType t =
+    case t of
+        (CstSimpleType n) -> CstGenBot
+        (CstClassType _ gen _) -> gen
+
+getAllGenTypes :: CstGenInstance -> [String]
+getAllGenTypes gen =
+    case gen of
+        (CstGenInstance n gen' _) -> [n] ++ getAllGenTypes gen'
+        (CstGenBot) -> []
+
+sanityCheckTypeVariables :: [CstGenInstance] -> [String] -> [String] -> String -> [String]
+sanityCheckTypeVariables (g:gs) (n:ns) supportedTypes msg =
+    sanityCheckTypeNames allGenTypes [n] supportedTypes msg
+    ++ sanityCheckTypeVariables gs ns supportedTypes msg
+    where
+        allGenTypes = getAllGenTypes g
+
+sanityCheckTypeVariables _ _ supportedTypes msg = []
+
+sanityCheckTypeNames :: [String] -> [String] -> [String] -> String -> [String]
+sanityCheckTypeNames (ut:uts) (n:ns) supportedTypes msg =
+    if (ut == "//Bot") || (ut `elem` supportedTypes)
+        then sanityCheckTypeNames uts ns supportedTypes msg
+        else [(errMsg ut n msg)]
+             ++ sanityCheckTypeNames uts ns supportedTypes msg--}
+sanityCheckTypeNames _ _ supportedTypeNames errMsg = []
+
 -- UsedTypes -> Identifier -> SupportedTypes -> ErrorMsg
 sanityCheckTypes :: [CstType] -> [String] -> [CstType] -> String -> [String]
-sanityCheckTypes (ut:uts) (n:ns) supportedTypes msg =
-    if ut `elem` supportedTypes
-        then sanityCheckTypes uts ns supportedTypes msg
-        else [(errMsg ut n msg)]
-             ++ sanityCheckTypes uts ns supportedTypes msg
-sanityCheckTypes _ _ supportedTypes errMsg = []
+sanityCheckTypes uts ns supportedTypes msg =
+    sanityCheckTypeNames usedTypeNames ns supportedTypeNames msg
+    ++ sanityCheckTypeVariables typeVariables ns supportedTypeNames msg
+    where
+        supportedTypeNames = map typeNameFromCstType supportedTypes
+        usedTypeNames      = map typeNameFromCstType uts
+        typeVariables      = map cstGenFromCstType uts
 
 errMsg :: String -> String -> String -> String
 errMsg identifierType identifier identifierMsg = 
@@ -86,9 +138,33 @@ sanityCheckMethodTypes methods types =
         parameterNames = map parameterName methods
         parameterMsg   = "used in parameter"
 
+getGenParameters :: CstGenInstance -> Maybe (CstGenInstance, CstUsage)
+getGenParameters t =
+    case t of
+        (CstGenBot) -> Nothing
+        (CstGenInstance n genRec usage) -> Just (genRec, usage)
+
+-- NOT DONE
+overlaps :: [String] -> [String] -> [String]
+overlaps a b = []
+
+-- NOT DONE
+sanityCheckRecUsageOverlap :: [(String, CstUsage)] -> [CstField] -> [CstMethod] -> [String]
+sanityCheckRecUsageOverlap classRecUsage fields methods = 
+    map (++ "Overlap rec var in ") $ overlaps classRecVars ["asd"]
+    where
+        classRecVars = map fst classRecUsage
+        fieldGenPar  = filter isJust $ map getGenParameters $ map fieldGen fields
+        methodTypes  = map methodType methods
+        methodUsages = map methodTypeUsage methods
+        methodClassTypes = filter (\(x,y) -> isJust y) $ zip methodTypes methodUsages
+        parameterTypes  = map parameterType methods
+        parameterUsages = map parameterTypeUsage methods
+        parameterClassTypes = filter (\(x,y) -> isJust y) $ zip parameterTypes parameterUsages
+
+
 -- Enum CHECKING
     -- Unique labels
-
 sanityCheckEnums :: [CstProgram] -> [String]
 sanityCheckEnums programs = 
     map (++ " duplicated label") (duplicates labels)
@@ -99,14 +175,15 @@ sanityCheckEnums programs =
 -- Combines errors from sub-class checkers.
 sanityCheckClass :: CstClass -> [String]
 sanityCheckClass cls@(CstClass name _ usage recusage fields methods) =
-    usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs
+    usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs ++ overlapErrs
     where 
-        usageErrs     = sanityCheckUsageRecVariables usage recusage
+        usageErrs      = sanityCheckUsageRecVariables usage recusage
                         ++ sanityCheckUsageMethodExist usage recusage methods
                         ++ [sanityCheckUsageGoesToEnd cls]
-        fieldErrs     = sanityCheckFieldVariables fields
-        methodErrs    = sanityCheckMethods methods
-        parameterErrs = sanityCheckParameters methods fields
+        fieldErrs      = sanityCheckFieldVariables fields
+        methodErrs     = sanityCheckMethods methods
+        parameterErrs  = sanityCheckParameters methods fields
+        overlapErrs    = sanityCheckRecUsageOverlap recusage fields methods
 
 -- FIELD CHECKING
     -- Duplicate fields names
