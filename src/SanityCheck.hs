@@ -12,10 +12,12 @@ import Debug.Trace (trace)
 duplicates :: [String] -> [String]
 duplicates = map head . filter ((> 1) . length) . group
 
-getAllTypes :: [CstClass] -> [CstEnum] -> [String]
-getAllTypes classes enums = (map className classes) 
-                    ++ ["void", "bool"]
-                    ++ (map enumName enums)
+getAllTypes :: [CstClass] -> [CstEnum] -> [CstType]
+getAllTypes classes enums = 
+    [(CstSimpleType "void"), (CstSimpleType "bool")]
+    where
+        classNames = map className classes
+        enumNames  = map enumName enums
 
 -- PROGRAM CHECKING
     -- Valid field types
@@ -50,7 +52,7 @@ sanityCheckPrograms programs =
         classErrs         = concat $ map sanityCheckClass classes
 
 -- UsedTypes -> Identifier -> SupportedTypes -> ErrorMsg
-sanityCheckTypes :: [String] -> [String] -> [String] -> String -> [String]
+sanityCheckTypes :: [CstType] -> [String] -> [CstType] -> String -> [String]
 sanityCheckTypes (ut:uts) (n:ns) supportedTypes msg =
     if ut `elem` supportedTypes
         then sanityCheckTypes uts ns supportedTypes msg
@@ -63,15 +65,16 @@ errMsg identifierType identifier identifierMsg =
     "Unsupported type " ++ identifierType ++ " "
     ++ identifierMsg ++ " " ++ identifier
 
-sanityCheckFieldTypes :: [CstField] -> [String] -> [String]
+sanityCheckFieldTypes :: [CstField] -> [CstType] -> [String]
 sanityCheckFieldTypes fields types =
     sanityCheckTypes usedTypes fieldNames types msg
     where
-        usedTypes  = map fieldType fields
+        usedTypes  = map toCstType $ zip (map fieldType fields) (map fieldGen fields)
+        toCstType  = (\(tt, gt) -> (CstClassType tt gt CstUsageEnd))
         fieldNames = map fieldName fields
         msg        = "used in field"
 
-sanityCheckMethodTypes :: [CstMethod] -> [String] -> [String]
+sanityCheckMethodTypes :: [CstMethod] -> [CstType] -> [String]
 sanityCheckMethodTypes methods types = 
     (sanityCheckTypes methodTypes methodNames types methodMsg)
     ++ (sanityCheckTypes parameterTypes parameterNames types parameterMsg)

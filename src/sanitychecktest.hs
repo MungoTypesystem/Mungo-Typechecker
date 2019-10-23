@@ -1,18 +1,11 @@
-module Main where
+module Sanitychecktest where
 
-import Lib
 import MungoParser
-import TypeSystem
 import SanityCheck
-import AST
 import Data.Either
 import Control.Monad
 import Control.Applicative
-import LanguageTest
 import Data.Graph
-
-main :: IO ()
-main = putStrLn "hello world"
 
 sequence' :: [a] -> [IO a] -> IO [a]
 sequence' l []     = return l
@@ -39,5 +32,3 @@ checkSanity program = do
     let errs = sanityCheck program
     forM_ errs putStrLn
     return ()
-
-testParseSwitch = parseProgram <$> readFile "C:/Users/mikkel/Documents/GitHub/Mungo-Inference/ExamplePrograms/SwitchExample.mg"
