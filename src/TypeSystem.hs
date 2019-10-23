@@ -24,6 +24,35 @@ _                        === _                        = False
    
 
 
+--inserting top type
+insertTopTypeClassEasy = 
+    insertTopTypeClass (ClassFieldGen "$generic" GenericBot) (CType ("$generic", GenericBot, UsageTop))
+
+
+insertTopTypeClass :: FieldType -> Type -> Class -> Class 
+insertTopTypeClass ft tt c = 
+    let f = map (insertTopTypeField ft) (cfields c)
+        m = map (insertTopTypeMethod tt) (cmethods c)
+    in  c {cfields = f, cmethods = m}
+
+insertTopTypeField ::  FieldType -> Field ->Field 
+insertTopTypeField ft f = 
+    let newFt = insertTopTypeFieldType ft $ ftype f
+    in f{ftype = newFt}
+        
+insertTopTypeFieldType :: FieldType -> FieldType -> FieldType
+insertTopTypeFieldType replacement (GenericField) = replacement -- ClassFieldGen "$generic" GenericBot 
+insertTopTypeFieldType _           a              = a 
+
+insertTopTypeMethod :: Type -> Method -> Method
+insertTopTypeMethod t m =
+    let rt = insertTopTypeType t $ rettype m
+        pt = insertTopTypeType t $ partype m
+    in m {rettype = rt, partype = pt}
+
+insertTopTypeType :: Type -> Type -> Type
+insertTopTypeType replacement GType = replacement -- CType ("$generic", GenericBot, UsageTop) 
+insertTopTypeType replacement a     = a
 
 
 
@@ -90,7 +119,8 @@ transitions' recU (UsageVariable str) =
 filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
  
 lin :: Type -> Bool
-lin (CType (cname, _, usage)) = current usage /= UsageEnd
+lin (CType (cname, _, UsageTop)) = True
+lin (CType (cname, _, usage))    = current usage /= UsageEnd
 lin _ = False
 
 
@@ -102,9 +132,15 @@ getField cls classname fieldname =
     let clazz = head $ filter (\c -> cname c == classname) cls in
         ftype . head $ filter (\f -> fname f == fieldname) $ cfields clazz
 
-getMethod cls classname methodname = 
+getMethod cls classname methodname GenericBot = 
     let clazz = head $ filter (\c -> cname c == classname) cls in
         head $ filter (\m -> mname m == methodname) $ cmethods clazz
+
+getMethod cls classname methodname (GenericInstance gcname g u) = 
+    let clazz = head $ filter (\c -> cname c == classname) cls 
+        t'    = CType (gcname, g, u)
+    in insertTopTypeMethod t' $ head $ filter (\m -> mname m == methodname) $ cmethods clazz
+
 
 lookupLambda :: ObjectFieldTypeEnv -> ObjectName -> FieldName -> Maybe Type
 lookupLambda lambda name field = do
@@ -158,9 +194,9 @@ getLambdaField lambda oname fldname = do
     envLookup env fldname
 
 agree :: FieldType -> Type -> Bool
-agree (BaseFieldType b1) (BType b2)         = b1 == b2
+agree (BaseFieldType b1) (BType b2)                    = b1 == b2
 agree (ClassFieldGen cn1 gen1) (CType (cn2, gen2, _) ) = cn1 == cn2 && gen1 == gen2
-agree (ClassFieldGen cn1 gen) (BotType)        = True
+agree (ClassFieldGen cn1 gen) (BotType)                = True
 agree _ _ = False
 
 findCls :: [Class] -> String -> Maybe Class
@@ -219,7 +255,7 @@ checkTFld' cls enums lambda delta omega (ExprAssign fname e) = do
     ((cname, typelookup), envlookup) <- "Field does not exist in lambda" ~~ envLookup lambda' oname
     let lstEl' = lastDelta delta'
 
-    if not a then Left "Field types does not agree" else
+    if not a then Left ("Field types does not agree " ++ show (getField cls cname fname) ++ " with " ++ show t') else
         if not nl then Left "Field does not have a linear type" else
             Right (BType VoidType, updateLambda lambda' oname fname t', delta', omega')
 
@@ -380,7 +416,7 @@ checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
             let resultingUsages =  filterUsages m $ transitions usage
             assert' (length resultingUsages > 0) ("No transitions available for method call " ++ m)  $ do
             let w =  head resultingUsages
-            let (Method tret _ ptype _ _) = getMethod cls c m
+            let (Method tret _ ptype _ _) = getMethod cls c m gen
             assert' (t == ptype) ("Wrong parameter type in TCallF " ++ show t ++ " expected " ++ show ptype)$ do
             Right $ (tret, (updateLambda lambda' o f (CType (c, gen, w))), delta', omega')
         _ -> Left "Invalid type for field"
@@ -405,7 +441,7 @@ checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
             let resultingUsages = filterUsages m $ transitions usage
             assert' (length resultingUsages > 0) "No transitions available for method call" $ do
             let w =  head resultingUsages
-            let (Method tret _ ptype _ _) = getMethod cls c m
+            let (Method tret _ ptype _ _) = getMethod cls c m gen
             assert' (t == ptype) "Wrong parameter type in TCallP" $ do
             Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, gen, w)))), omega')
         _ -> Left "Invalid type for field"
@@ -547,6 +583,14 @@ checkTProg' cls enums (c:cs) =
 
 checkTClass :: [Class] -> [EnumDef] -> Class -> Either String ()
 checkTClass cls enums c = 
+    let c'   = insertTopTypeClassEasy c
+        name = cname c 
+        cls' = c' : filter (\x -> cname x /= name) cls
+    in checkTClass' cls' enums c'
+    
+
+checkTClass' :: [Class] -> [EnumDef] -> Class -> Either String ()
+checkTClass' cls enums c = 
     let term = checkTUsage cls enums [] (initFields (cfields c)) c (cusage c) 
         term' = "checkTUSage failed" `maybeEitherToEither` term
     in  term' >>= \term'' -> 

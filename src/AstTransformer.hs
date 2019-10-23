@@ -145,8 +145,13 @@ convertType global classesData classInfo myType u =
                                                 recU  = recUsages . head $ found
                                             in if not . null $ found
                                                     then Right $ CType (name, gen', Usage u' recU)
-                                                    else Left $ "class not found " ++ show name
-                                      | True -> Left $ "error class " ++ name ++ " not found"
+                                                    else Left $ "unable to find class " ++ name
+                            | True -> if isJust (genericNames classInfo)
+                                            then let (gn, _) = fromJust (genericNames classInfo)
+                                                 in if gn == name
+                                                            then Right $ GType
+                                                            else  Left $ "error class " ++ name ++ " not found " ++ show myType
+                                            else Left $ "error class " ++ name ++ " not found " ++ show myType
                                         
 convertGenericType :: GlobalDefinitions -> BuilderData -> Maybe (String, String) -> CstGenInstance -> GenericInstance
 convertGenericType global classData genNames CstGenBot                                                    = GenericBot
@@ -314,3 +319,5 @@ convertReference global methodInfo name =   convertToParameter global methodInfo
                                         <|> convertToField global methodInfo name
                                         <|> Left (concat ["unable to convert ", name, " to reference"])
                         
+
+

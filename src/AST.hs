@@ -49,7 +49,9 @@ data Class = Class { cname    :: ClassName
 
 data Usage = Usage { current :: UsageImpl
                    , recursiveUsages :: [(String, UsageImpl)]
-                   } deriving (Show, Eq)
+                   } 
+           | UsageTop
+                deriving (Show, Eq)
 
 data UsageImpl = UsageChoice [(String, UsageImpl)]
                | UsageBranch [(String, UsageImpl)]
