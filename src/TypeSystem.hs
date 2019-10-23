@@ -602,6 +602,7 @@ initFields :: [Field] -> [(FieldName, Type)]
 initFields [] = []
 initFields ((Field (BaseFieldType b) name):flds) = (name, BType b):(initFields flds)
 initFields ((Field (ClassFieldGen c gen) name):flds) = (name, BotType):(initFields flds)
+initFields ((Field GenericField name):flds) = error "Wrong field type, not instantiated"
 
 terminatedEnv :: FieldTypeEnv -> Bool
 terminatedEnv [] = True
