@@ -12,15 +12,11 @@ import Debug.Trace (trace)
 duplicates :: [String] -> [String]
 duplicates = map head . filter ((> 1) . length) . group
 
-convertStringToCstType :: [String] -> [CstType]
-convertStringToCstType (x:xs) = [CstSimpleType x] ++ convertStringToCstType xs
-convertStringToCstType _ = []
-
-getAllTypes :: [CstClass] -> [CstEnum] -> [CstType]
+getAllTypes :: [CstClass] -> [CstEnum] -> [String]
 getAllTypes classes enums = 
-    [(CstSimpleType "void"), (CstSimpleType "bool")]
-    ++ convertStringToCstType classNames
-    ++ convertStringToCstType enumNames
+    ["void", "bool"]
+    ++ classNames
+    ++ enumNames
     where
         classNames = map className classes
         enumNames  = map enumName enums
@@ -47,7 +43,7 @@ sanityCheckDuplicateNames classes enums =
 
 sanityCheckPrograms :: [CstProgram] -> [String]
 sanityCheckPrograms programs =
-    duplicateNameErrs ++ fieldTypeErrs ++ methodTypeErrs ++ classErrs
+    duplicateNameErrs ++ fieldTypeErrs ++ methodTypeErrs ++ classErrs ++ overlapErrs
     where
         classes           = concat $ map progClasses programs
         enums             = concat $ map progEnums programs
@@ -55,6 +51,7 @@ sanityCheckPrograms programs =
         duplicateNameErrs = sanityCheckDuplicateNames classes enums
         fieldTypeErrs     = concat $ map (`sanityCheckFieldTypes` supportedTypes) $ map classFields classes
         methodTypeErrs    = concat $ map (`sanityCheckMethodTypes` supportedTypes) $ map classMethods classes
+        overlapErrs       = map (`sanityCheckClassGenPar` supportedTypes) $ classes
         classErrs         = concat $ map sanityCheckClass classes
 
 --- Check Types with generics
@@ -103,12 +100,11 @@ sanityCheckTypeNames (ut:uts) (n:ns) supportedTypes msg =
 sanityCheckTypeNames _ _ supportedTypeNames errMsg = []
 
 -- UsedTypes -> Identifier -> SupportedTypes -> ErrorMsg
-sanityCheckTypes :: [CstType] -> [String] -> [CstType] -> String -> [String]
+sanityCheckTypes :: [CstType] -> [String] -> [String] -> String -> [String]
 sanityCheckTypes uts ns supportedTypes msg =
-    sanityCheckTypeNames usedTypeNames ns supportedTypeNames msg
-    ++ sanityCheckTypeVariables typeVariables ns supportedTypeNames msg
+    sanityCheckTypeNames usedTypeNames ns supportedTypes msg
+    ++ sanityCheckTypeVariables typeVariables ns supportedTypes msg
     where
-        supportedTypeNames = map typeNameFromCstType supportedTypes
         usedTypeNames      = map typeNameFromCstType uts
         typeVariables      = map cstGenFromCstType uts
 
@@ -117,7 +113,7 @@ errMsg identifierType identifier identifierMsg =
     "Unsupported type " ++ identifierType ++ " "
     ++ identifierMsg ++ " " ++ identifier
 
-sanityCheckFieldTypes :: [CstField] -> [CstType] -> [String]
+sanityCheckFieldTypes :: [CstField] -> [String] -> [String]
 sanityCheckFieldTypes fields types =
     sanityCheckTypes usedTypes fieldNames types msg
     where
@@ -126,7 +122,7 @@ sanityCheckFieldTypes fields types =
         fieldNames = map fieldName fields
         msg        = "used in field"
 
-sanityCheckMethodTypes :: [CstMethod] -> [CstType] -> [String]
+sanityCheckMethodTypes :: [CstMethod] -> [String] -> [String]
 sanityCheckMethodTypes methods types = 
     (sanityCheckTypes methodTypes methodNames types methodMsg)
     ++ (sanityCheckTypes parameterTypes parameterNames types parameterMsg)
@@ -144,24 +140,23 @@ getGenParameters t =
         (CstGenBot) -> Nothing
         (CstGenInstance n genRec usage) -> Just (genRec, usage)
 
--- NOT DONE
-overlaps :: [String] -> [String] -> [String]
-overlaps a b = []
-
--- NOT DONE
-sanityCheckRecUsageOverlap :: [(String, CstUsage)] -> [CstField] -> [CstMethod] -> [String]
-sanityCheckRecUsageOverlap classRecUsage fields methods = 
-    map (++ "Overlap rec var in ") $ overlaps classRecVars ["asd"]
+-- Check that alpha and beta does not overlap with any declared classes.
+sanityCheckClassGenPar :: CstClass -> [String] -> String
+sanityCheckClassGenPar cls supportedTypes = 
+    if isNothing genericPar
+        then []
+    else checkOverlap (fromJust genericPar) supportedTypes $ className cls
     where
-        classRecVars = map fst classRecUsage
-        fieldGenPar  = filter isJust $ map getGenParameters $ map fieldGen fields
-        methodTypes  = map methodType methods
-        methodUsages = map methodTypeUsage methods
-        methodClassTypes = filter (\(x,y) -> isJust y) $ zip methodTypes methodUsages
-        parameterTypes  = map parameterType methods
-        parameterUsages = map parameterTypeUsage methods
-        parameterClassTypes = filter (\(x,y) -> isJust y) $ zip parameterTypes parameterUsages
+        genericPar = classGeneric cls
 
+
+checkOverlap :: (String, String) -> [String] -> String -> String
+checkOverlap genPar supportedTypes clsName =
+    if alpha `elem` supportedTypes || beta `elem` supportedTypes
+        then "Overlap error in generic alpha or beta in class " ++ clsName
+    else []
+    where
+        (alpha, beta) = genPar
 
 -- Enum CHECKING
     -- Unique labels
@@ -175,15 +170,14 @@ sanityCheckEnums programs =
 -- Combines errors from sub-class checkers.
 sanityCheckClass :: CstClass -> [String]
 sanityCheckClass cls@(CstClass name _ usage recusage fields methods) =
-    usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs ++ overlapErrs
+    usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs
     where 
         usageErrs      = sanityCheckUsageRecVariables usage recusage
                         ++ sanityCheckUsageMethodExist usage recusage methods
                         ++ [sanityCheckUsageGoesToEnd cls]
         fieldErrs      = sanityCheckFieldVariables fields
         methodErrs     = sanityCheckMethods methods
-        parameterErrs  = sanityCheckParameters methods fields
-        overlapErrs    = sanityCheckRecUsageOverlap recusage fields methods
+        parameterErrs  = sanityCheckParameters methods fields 
 
 -- FIELD CHECKING
     -- Duplicate fields names

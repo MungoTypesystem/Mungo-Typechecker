@@ -26,8 +26,9 @@ sequence' l (x:xs) = do
 
 testFile1 = "../Mungo-Inference/ExamplePrograms/SimpleExample.mg"
 testFile2 = "../Mungo-Inference/ExamplePrograms/UseAnotherClassExample.mg"
+testFile3 = "../Mungo-Inference/ExamplePrograms/generic.mg"
 
-readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile1]
+readFiles = sequence' [] $ map (parseProgram <$>) $ map readFile [testFile3]
 
 check = do
     program <- readFiles
