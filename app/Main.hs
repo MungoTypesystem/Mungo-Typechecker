@@ -10,9 +10,13 @@ import Control.Monad
 import Control.Applicative
 import LanguageTest
 import Data.Graph
+import LanguageTest
+import System.Environment
 
 main :: IO ()
-main = putStrLn "hello world"
+main = do
+    args <- getArgs
+    runFile $ head args
 
 sequence' :: [a] -> [IO a] -> IO [a]
 sequence' l []     = return l

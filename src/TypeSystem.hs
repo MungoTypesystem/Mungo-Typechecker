@@ -295,7 +295,7 @@ checkTRet' cls enums lambda delta omega (ExprReturn e)= do
     let lastEl' = lastDelta delta'
     (o', (x, t')) <- fromMaybe (Left "Wrong stack size in TRet") $ Right <$> lastEl'
     assert' (lin t') "t' must be terminated in TRet" $ do
-    Right (t, lambda', (initDelta delta') `with` (o, s), omega')
+        Right (t, lambda', (initDelta delta') `with` (o, s), omega')
 
 checkTRet :: ExprCheck
 checkTRet cls enums lambda delta omega (ExprReturn e) = do
@@ -306,13 +306,13 @@ checkTIf' :: ExprCheckInternal
 checkTIf' cls enums lambda delta omega (ExprIf e e' e'') = do
     (t, lambda'', delta'', omega'') <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda delta omega e
     assert' (t == BType BoolType) "If-case expression must evaluate to bool" $ do
-    (t', lambda1, delta1, omega1) <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda'' delta'' omega'' e'
-    (t'', lambda2, delta2, omega2) <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda'' delta'' omega'' e''
-    assert' (t' == t'') "Types of branches in if does not match" $ do
-    assert' (lambda1 == lambda2) "Lambda does not match in if" $ do
-    assert' (delta1 == delta2) "Deltas do not match in if" $ do
-    assert' (omega1 == omega2) "Omegas do not match in if" $ do
-    Right (t', lambda1, delta1, omega1)
+        (t', lambda1, delta1, omega1) <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda'' delta'' omega'' e'
+        (t'', lambda2, delta2, omega2) <- maybeEitherToEither "Could not typecheck returned expression" $ checkExpression cls enums lambda'' delta'' omega'' e''
+        assert' (t' == t'') "Types of branches in if does not match" $ do
+            assert' (lambda1 == lambda2) "Lambda does not match in if" $ do
+                assert' (delta1 == delta2) "Deltas do not match in if" $ do
+                    assert' (omega1 == omega2) "Omegas do not match in if" $ do
+                        Right (t', lambda1, delta1, omega1)
 
     
 
@@ -336,9 +336,9 @@ checkTLab' cls enums lambda delta omega (ExprLabel label e) =
         Nothing -> do
             (t, lambda', delta', omega') <- maybeEitherToEither ("could not typecheck " ++ label ++ " expression" )  $ checkExpression cls enums lambda delta ((label, (lambda, delta)) :omega ) e
             assert' (lambda == lambda') "Lambdas do not match (2)" $ do
-            assert' (delta == delta') "Deltas do not match (2)" $ do
-            assert' (t == BType VoidType) "Wrong value of labelled expression" $ do
-            Right (t, lambda', delta', omega)
+                assert' (delta == delta') "Deltas do not match (2)" $ do
+                    assert' (t == BType VoidType) "Wrong value of labelled expression" $ do
+                        Right (t, lambda', delta', omega)
 
 checkTLab :: ExprCheck
 checkTLab cls enums lambda delta omega exp@(ExprLabel label e) = 
@@ -353,8 +353,8 @@ checkTCon cls enums lambda delta omega (ExprContinue label) = do
         Just (lambda', delta') -> 
             Just $ do
                 assert' (lambda == lambda') "Lambdas do not match" $ do
-                assert' (delta == delta') "Deltas do not match" $ do
-                Right (BType VoidType, lambda, delta, omega)
+                    assert' (delta == delta') "Deltas do not match" $ do
+                        Right (BType VoidType, lambda, delta, omega)
 checkTCon cls enums lambda delta omega _ = Nothing
 
 checkTLit :: ExprCheck
@@ -410,16 +410,16 @@ checkTCallF' cls enums lambda delta omega (ExprCall (RefField f) m e) = do
     (o, s) <- fromMaybe (Left "Wrong stack size in TCallF") $ Right <$> lstEl
     (o', s') <- fromMaybe (Left "Wrong stack size in TCallF") $ Right <$> lstEl'
     assert' (o == o') "Object names does not match in TCallF" $ do
-    ftype <- fromMaybe (Left "Could not find field in TCallF") $ Right <$> lookupLambda lambda' o f
-    case ftype of 
-        (CType (c, gen, usage)) -> do
-            let resultingUsages =  filterUsages m $ transitions usage
-            assert' (length resultingUsages > 0) ("No transitions available for method call " ++ m)  $ do
-            let w =  head resultingUsages
-            let (Method tret _ ptype _ _) = getMethod cls c m gen
-            assert' (t == ptype) ("Wrong parameter type in TCallF " ++ show t ++ " expected " ++ show ptype)$ do
-            Right $ (tret, (updateLambda lambda' o f (CType (c, gen, w))), delta', omega')
-        _ -> Left "Invalid type for field"
+        ftype <- fromMaybe (Left "Could not find field in TCallF") $ Right <$> lookupLambda lambda' o f
+        case ftype of 
+            (CType (c, gen, usage)) -> do
+                let resultingUsages =  filterUsages m $ transitions usage
+                assert' (length resultingUsages > 0) ("No transitions available for method call " ++ m)  $ do
+                    let w =  head resultingUsages
+                    let (Method tret _ ptype _ _) = getMethod cls c m gen
+                    assert' (t == ptype) ("Wrong parameter type in TCallF " ++ show t ++ " expected " ++ show ptype)$ do
+                        Right $ (tret, (updateLambda lambda' o f (CType (c, gen, w))), delta', omega')
+            _ -> Left "Invalid type for field"
 
 checkTCallP :: ExprCheck
 checkTCallP cls enums lambda delta omega e@(ExprCall (RefParameter name) mthd exp) =
@@ -435,16 +435,16 @@ checkTCallP' cls enums lambda delta omega (ExprCall (RefParameter x) m e) = do
     (o, s) <- fromMaybe (Left "Wrong stack size in TCallP") $ Right <$> lstEl
     (o', (x', t')) <- fromMaybe (Left "Wrong stack size in TCallP") $ Right <$> lstEl'
     assert' (o == o') "Object names does not match in TCallP" $ do
-    assert' (x == x') "Parameter names does not match in TCallP" $ do
-    case t' of 
-        (CType (c, gen, usage)) -> do
-            let resultingUsages = filterUsages m $ transitions usage
-            assert' (length resultingUsages > 0) "No transitions available for method call" $ do
-            let w =  head resultingUsages
-            let (Method tret _ ptype _ _) = getMethod cls c m gen
-            assert' (t == ptype) "Wrong parameter type in TCallP" $ do
-            Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, gen, w)))), omega')
-        _ -> Left "Invalid type for field"
+        assert' (x == x') "Parameter names does not match in TCallP" $ do
+            case t' of 
+                (CType (c, gen, usage)) -> do
+                    let resultingUsages = filterUsages m $ transitions usage
+                    assert' (length resultingUsages > 0) "No transitions available for method call" $ do
+                        let w =  head resultingUsages
+                        let (Method tret _ ptype _ _) = getMethod cls c m gen
+                        assert' (t == ptype) "Wrong parameter type in TCallP" $ do
+                            Right $ (tret, lambda', (initDelta delta') `with` (o', (x', (CType (c, gen, w)))), omega')
+                _ -> Left "Invalid type for field"
 
 lookupLabels :: Type -> [EnumDef] -> Maybe [String]
 lookupLabels (BType (EnumType name)) def = lookupLabels' name def
@@ -496,19 +496,19 @@ checkTSwP' cls enums lambda delta omega expr@(ExprSwitch (RefParameter x) e _) =
     (o, s) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl
     (o', (x', t')) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
     assert' (o == o') "Objects does not match in TSwP" $ do
-    assert' (x == x') "Parameter does not match in checkTSwP" $ do
-    lbls <- ("failed to lookup enum" ~~  lookupLabels t enums)
-    usage <- "must be a classtype" ~~ findUsage t'
-    transitions <- availableChoices usage
-    assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
-    assert' (length lbls > 0) "no labels found" $ do
-    -- todo check all transitions end up in the same state 
-    let afterTransition = map (checkTSwP'' cls enums lambda'' delta'' omega'' expr usage) transitions
-    let (failed, succeeded) = partitionEithers afterTransition    
-    assert' (null failed) "some transitions failed" $ do
-    let compareable = head succeeded 
-    assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
-    compareable
+        assert' (x == x') "Parameter does not match in checkTSwP" $ do
+            lbls <- ("failed to lookup enum" ~~  lookupLabels t enums)
+            usage <- "must be a classtype" ~~ findUsage t'
+            transitions <- availableChoices usage
+            assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
+                assert' (length lbls > 0) "no labels found" $ do
+                    -- todo check all transitions end up in the same state 
+                    let afterTransition = map (checkTSwP'' cls enums lambda'' delta'' omega'' expr usage) transitions
+                    let (failed, succeeded) = partitionEithers afterTransition    
+                    assert' (null failed) "some transitions failed" $ do
+                        let compareable = head succeeded 
+                        assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
+                            compareable
 
 checkTSwP'' cls enums lambda delta omega expr usage transition = do
     expr' <- switchExpr' expr     
@@ -540,19 +540,19 @@ checkTSwF' cls enums lambda delta omega expr@(ExprSwitch (RefField f) e _) = do
     (o, s) <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl
     (o', s') <- fromMaybe (Left "Wrong stack size in TSwP") $ Right <$> lstEl'
     assert' (o == o') "Objects does not match in TSwP" $ do
-    ftype <- maybeToEither "could not find fild in CheckTSwF" $ lookupLambda lambda'' o f
-    lbls <- "failed to lookup enum" ~~  lookupLabels t enums
-    usage <- "must be a classtype" ~~ findUsage ftype
-    transitions <- availableChoices usage
-    assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
-    assert' (length lbls > 0) "no labels found" $ do
-    -- todo check all transitions end up in the same state 
-    let afterTransition = map (checkTSwF'' cls enums lambda'' delta'' omega'' expr usage f) transitions
-    let (failed, succeeded) = partitionEithers afterTransition    
-    assert' (null failed) ("some transitions failed " ++ show failed) $ do
-    let compareable = head succeeded 
-    assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
-    compareable
+        ftype <- maybeToEither "could not find fild in CheckTSwF" $ lookupLambda lambda'' o f
+        lbls <- "failed to lookup enum" ~~  lookupLabels t enums
+        usage <- "must be a classtype" ~~ findUsage ftype
+        transitions <- availableChoices usage
+        assert' (sort lbls == sort transitions) "label and transitions do not match" $ do
+            assert' (length lbls > 0) "no labels found" $ do
+                -- todo check all transitions end up in the same state 
+                let afterTransition = map (checkTSwF'' cls enums lambda'' delta'' omega'' expr usage f) transitions
+                let (failed, succeeded) = partitionEithers afterTransition    
+                assert' (null failed) ("some transitions failed " ++ show failed) $ do
+                    let compareable = head succeeded 
+                    assert' (all (== compareable) succeeded) "not all transitions lead to same values" $ do
+                        compareable
 
 checkTSwF'' cls enums lambda delta omega expr usage f transition = do
     expr' <- switchExpr' expr     
@@ -653,8 +653,8 @@ checkTCBr' cls enums theta envTf c mname (label, uimpl, bindings) = do
     (_, envTf'') <- fromMaybe (Left "Bla") $ Right <$> envLookup lambda' "this"
     --assert' (ti'' == (partype method)) "Wrong resulting parameter type TCBr" $ do
     assert' (terminated ti'') "Parameter must be terminated TCBr" $ do
-    let res = fromJust $ checkTUsage cls enums theta envTf'' c (Usage uimpl bindings)
-    res
+        let res = fromJust $ checkTUsage cls enums theta envTf'' c (Usage uimpl bindings)
+        res
 
 checkTCCh :: UsageCheck
 checkTCCh cls enums theta envTf c (Usage (UsageChoice lst) bindings) = 
