@@ -2,7 +2,7 @@ module TypeSystemTest where
 
 import AST
 import Data.Maybe
-import Control.Monad (ap, liftM, guard, liftM2, forM)
+import Control.Monad (ap, liftM, guard, liftM2, forM, when)
 import Data.Maybe
 import Debug.Trace
 import Control.Arrow (second)
@@ -78,6 +78,7 @@ data ClassData = ClassData { allClasses    :: [Class]
 
 data MyState = MyState { environments :: Environments
                        , classData    :: ClassData 
+                       , enumsData    :: [EnumDef]
                        } deriving (Show)
 
 
@@ -114,9 +115,13 @@ headM (x:_) = return x
 headM []    = fail ""
 
 lastM :: Monad m => [a] -> m a
-lastM (x:[]) = return x
-lastM (_:xs) = lastM xs
-lastM []     = fail "" 
+lastM [] = fail "" 
+lastM xs = return $ last xs
+
+initM :: Monad m => [a] -> m [a]
+initM [] = fail ""
+initM xs = return $ init xs
+
 
 fromMaybeM :: Monad m => Maybe a -> m a
 fromMaybeM (Just x) = return x
@@ -188,6 +193,15 @@ getEnvironments = liftM2 (,) getLambda getDelta
 
 lastDelta :: Delta -> DTypeSystem (ObjectName, (ParameterName, Type)) 
 lastDelta delta = lastM $ dParameterStackTypeEnv delta
+
+setDelta :: Delta -> DTypeSystem ()
+setDelta d = do
+    (myState, t) <- getState
+    let env = environments myState
+    let env' = env {delta = d} 
+    let myState' = myState {environments = env'}
+    setState (myState', t)
+    
 
 convertNDToD :: NDTypeSystem () -> DTypeSystem [(MyState, Type)]
 convertNDToD nd = do 
@@ -290,6 +304,21 @@ assert' :: Monad m => Bool -> m ()
 assert' True  = return ()
 assert' False = fail "" 
 
+initDelta :: Delta -> Delta
+initDelta (Delta x y) = Delta x (init y)
+
+addDelta :: Delta -> (ObjectName, (ParameterName, Type)) -> Delta
+addDelta (Delta x y) el = Delta x (y ++ [el])
+
+with = addDelta 
+
+findEnum :: [EnumDef] -> LabelName -> DTypeSystem String
+findEnum [] litteral = fail "" 
+findEnum ((EnumDef name litterals):es) litteral = 
+    if (any (== litteral) litterals) 
+            then return name 
+            else findEnum es litteral
+
 checkExpression :: Expression -> NDTypeSystem () 
 checkExpression (ExprNew classname gen)     = checkTNew classname gen
 checkExpression (ExprAssign fieldname expr) = checkTFld fieldname expr
@@ -301,6 +330,11 @@ checkExpression (ExprContinue lbl)          = checkTCon lbl
 checkExpression (ExprBoolConst b)           = checkTBool b
 checkExpression (ExprNull)                  = checkTBot
 checkExpression (ExprUnit)                  = checkTUnit 
+checkExpression (ExprSwitch ref e cases)    = checkTSwitch ref e cases
+checkExpression (ExprReturn e)              = checkTRet e
+checkExpression (ExprReference ref)         = checkTRef ref
+checkExpression (ExprLitteral str)          = checkTLit str
+checkExpression (ExprObjectName o)          = checkTObj o 
 
 checkTNew :: String -> GenericInstance -> NDTypeSystem () 
 checkTNew cn gen = forAll $ do
@@ -436,13 +470,71 @@ checkTUnit = forAll $ do
     (s, _) <- getState
     return [(s, BType VoidType)]
 
+checkTSwitch :: Reference -> Expression -> [(String, Expression)] -> NDTypeSystem ()
+checkTSwitch ref e cases = fail "todo"
+
+checkTRet :: Expression -> NDTypeSystem ()
+checkTRet e = forAll $ do
+    delta3 <- getDelta
+    (o, s) <- lastDelta delta3
+    let delta = initDelta delta3
+    setDelta delta
+    let ndChecked = checkExpression e
+    convertNDToD $ forAllIn ndChecked $ do
+        delta4 <- getDelta
+        let delta3 = initDelta delta4 
+        setDelta (delta3 `with` (o,s))
+        s <- getState
+        return [s]
+
+checkTRef :: Reference -> NDTypeSystem ()
+checkTRef (RefParameter parametername) = checkTParRef parametername
+checkTRef (RefField fieldname)         = checkTFldRef fieldname
+
+checkTParRef :: String -> NDTypeSystem ()
+checkTParRef parametername = forAll $ do
+    delta <- getDelta
+    (o, (x, t)) <- lastDelta delta
+    (myState, _) <- getState
+    when (lin t) $ setDelta ((initDelta delta) `with` (o, (x, BotType)))
+    updatedState <- getState
+    return [updatedState]
     
+checkTFldRef :: String -> NDTypeSystem ()
+checkTFldRef fieldname = forAll $ do 
+    delta <- getDelta
+    (o, s) <- lastDelta delta
+    t <- getLambdaField fieldname
+    when (lin t) $ updateLambdaM o fieldname BotType
+    s <- getState
+    return [s]
+    
+checkTLit :: String -> NDTypeSystem ()
+checkTLit lit = forAll $ do
+    (myState, _) <- getState
+    let enums = enumsData myState
+    e <- findEnum enums lit
+    (s, _) <- getState
+    return [(s, BType (EnumType e))]
+    
+checkTObj :: String -> NDTypeSystem ()
+checkTObj o = forAll $ do 
+    delta <- getDelta
+    let envTo = dObjectTypeEnv delta
+    typestate <- o `envLookupIn` envTo
+    let envTo' = envTo `without` o
+    let delta' = delta {dObjectTypeEnv = envTo'}
+    setDelta delta'
+    (s, _) <- getState
+    return [(s, (CType typestate))]
+
+
 emptyEnv = Environments l d o
     where l = [] 
           d = Delta [] []
           o = Omega []
 
-emptyState = MyState emptyEnv (ClassData [Class "cls" ClassNoGeneric (Usage UsageEnd []) [] []] "")
+emptyState = MyState emptyEnv (ClassData [Class "cls" ClassNoGeneric (Usage UsageEnd []) [] []] "") []
 e = (ExprNew "cls" GenericBot)
 m = runState (checkExpression e) [(emptyState, BotType)]
 
