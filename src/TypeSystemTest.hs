@@ -5,6 +5,8 @@ import Data.Maybe
 import Control.Monad (ap, liftM, guard, liftM2, forM)
 import Data.Maybe
 import Debug.Trace
+import Control.Arrow (second)
+import Data.List (nub)
 
 data MState s a = MState { runState :: s -> Maybe (a, s)}
                 | MStateError 
@@ -67,7 +69,7 @@ data Errors = NoErrors
 data Environments = Environments { lambda :: Lambda 
                                  , delta  :: Delta 
                                  , omega :: Omega
-                                 } deriving (Show)
+                                 } deriving (Show, Eq)
 
 data ClassData = ClassData { allClasses    :: [Class]
                            , checkingClass :: String 
@@ -77,6 +79,10 @@ data ClassData = ClassData { allClasses    :: [Class]
 data MyState = MyState { environments :: Environments
                        , classData    :: ClassData 
                        } deriving (Show)
+
+
+instance Eq MyState where
+    m1 == m2 = environments m1 == environments m2
 
 type NDTypeSystem a = MState [(MyState, Type)] a
 type DTypeSystem  a = MState (MyState, Type) a
@@ -115,6 +121,39 @@ lastM []     = fail ""
 fromMaybeM :: Monad m => Maybe a -> m a
 fromMaybeM (Just x) = return x
 fromMaybeM Nothing  = fail "nothing"
+
+-- helper rewrite classes
+insertTopTypeClassEasy = 
+    insertTopTypeClass (ClassFieldGen "$generic" GenericBot) (CType ("$generic", GenericBot, UsageTop))
+
+
+insertTopTypeClass :: FieldType -> Type -> Class -> Class 
+insertTopTypeClass ft tt c = 
+    let f = map (insertTopTypeField ft) (cfields c)
+        m = map (insertTopTypeMethod tt) (cmethods c)
+    in  c {cfields = f, cmethods = m}
+
+insertTopTypeField ::  FieldType -> Field ->Field 
+insertTopTypeField ft f = 
+    let newFt = insertTopTypeFieldType ft $ ftype f
+    in f{ftype = newFt}
+        
+insertTopTypeFieldType :: FieldType -> FieldType -> FieldType
+insertTopTypeFieldType replacement (GenericField) = replacement -- ClassFieldGen "$generic" GenericBot 
+insertTopTypeFieldType _           a              = a 
+
+insertTopTypeMethod :: Type -> Method -> Method
+insertTopTypeMethod t m =
+    let rt = insertTopTypeType t $ rettype m
+        pt = insertTopTypeType t $ partype m
+    in m {rettype = rt, partype = pt}
+
+insertTopTypeType :: Type -> Type -> Type
+insertTopTypeType replacement GType = replacement -- CType ("$generic", GenericBot, UsageTop) 
+insertTopTypeType replacement a     = a
+
+
+
 
 -- state lookup
 envApply :: (Environments -> a) -> DTypeSystem a
@@ -167,12 +206,74 @@ getField fieldname = do
     field <- headM $ filter (\f -> fname f == fieldname) $ cfields clazz
     return $ ftype field
 
+getMethod methodname GenericBot = do 
+    classname <- getCurrentClass
+    cls       <- getAllClasses
+    clazz <- headM $ filter (\c -> cname c == classname) cls
+    headM $ filter (\m -> mname m == methodname) $ cmethods clazz
+    
+getMethod methodname (GenericInstance gcname g u) = do
+    classname <- getCurrentClass
+    cls       <- getAllClasses
+    clazz <- headM $ filter (\c -> cname c == classname) cls
+    let t'    = CType (gcname, g, u)
+    m <- headM $ filter (\m -> mname m == methodname) $ cmethods clazz
+    return $ insertTopTypeMethod t' m
+
 getLambdaField :: String -> DTypeSystem Type 
 getLambdaField fieldname = do
     classname <- getCurrentClass
     lambda <- getLambda
     ((clazzname, t), env)<- classname `envLookupIn` lambda
     fieldname `envLookupIn` env
+
+fileTypeCType t@(CType (c, gen, usage)) = return t
+fileTypeCType _                         = fail "did not work"
+
+without :: [(String, a)] -> String -> [(String, a)]
+without env name = filter ((/= name) . fst) env
+
+replaceFieldType :: FieldTypeEnv -> String -> Type -> FieldTypeEnv
+replaceFieldType env name ntype = map (\(n, t) -> if n == name then (n, ntype) else (n, t)) env
+
+updateLambda :: Lambda -> ObjectName -> FieldName -> Type -> Lambda 
+updateLambda lambda oname field ntype = 
+    let (c, env) = fromJust $ oname `lookup` lambda 
+        newEnv = replaceFieldType env field ntype
+    in 
+        (oname, (c, newEnv)):(without lambda oname)
+
+updateLambdaM :: ObjectName -> String -> Type -> DTypeSystem () 
+updateLambdaM oname field ntype = do
+    l <- getLambda
+    let l' = updateLambda l oname field ntype
+    (myState, tret) <- getState 
+    let env = environments myState
+    let env' = env { lambda = l'}
+    setState $ (myState {environments = env'}, tret)
+
+updateOmegaM :: Omega -> DTypeSystem ()
+updateOmegaM o = do
+    (myState, tret) <- getState
+    let env = environments myState
+    let env' = env {omega = o}
+    setState $ (myState {environments = env'}, tret)
+
+transitions :: Usage -> [(String, Usage)]
+transitions u = map toUsage $ transitions' (recursiveUsages u) (current u) 
+    where recursives = recursiveUsages u
+          toUsage :: (String, UsageImpl) -> (String, Usage)
+          toUsage = second ((flip Usage) recursives)
+
+
+transitions' :: [(String, UsageImpl)] -> UsageImpl ->  [(String, UsageImpl)]
+transitions' recU UsageEnd             = []
+transitions' recU (UsageBranch lst)    = lst
+transitions' recU (UsageChoice lst)    = lst
+transitions' recU (UsageVariable str) = 
+   fromMaybe [] $ transitions' recU <$> (str `envLookupIn` recU)
+
+filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
 
 lin :: Type -> Bool
 lin (CType (cname, _, UsageTop)) = True
@@ -189,12 +290,17 @@ assert' :: Monad m => Bool -> m ()
 assert' True  = return ()
 assert' False = fail "" 
 
-
 checkExpression :: Expression -> NDTypeSystem () 
 checkExpression (ExprNew classname gen)     = checkTNew classname gen
 checkExpression (ExprAssign fieldname expr) = checkTFld fieldname expr
 checkExpression (ExprCall ref mname e)      = checkTCall ref mname e
 checkExpression (ExprSeq e1 e2)             = checkTSeq e1 e2
+checkExpression (ExprIf e1 e2 e3)           = checkTIf e1 e2 e3
+checkExpression (ExprLabel lbl e1)          = checkTLab lbl e1
+checkExpression (ExprContinue lbl)          = checkTCon lbl
+checkExpression (ExprBoolConst b)           = checkTBool b
+checkExpression (ExprNull)                  = checkTBot
+checkExpression (ExprUnit)                  = checkTUnit 
 
 checkTNew :: String -> GenericInstance -> NDTypeSystem () 
 checkTNew cn gen = forAll $ do
@@ -220,7 +326,7 @@ checkTFld fieldname e = forAll $ do
         ((cname, typelookup), envlookup) <- oname `envLookupIn` lambda'
         (oname', s') <- lastDelta delta'
         assert' (oname == oname')
-        updateLambda oname fieldname t'
+        updateLambdaM oname fieldname t'
         state' <- getMyState
         return $ [(state', BType VoidType)]
 
@@ -234,21 +340,24 @@ checkTCallF fieldName mname expr = forAll $ do
     (o, _) <- lastDelta delta
     let ndChecked = checkExpression e
     convertNDToD $ forAllIn ndChecked $ do
+        t <- getReturnType
         delta' <- getDelta
         lambda' <- getLambda
         (o', _) <- lastDelta delta'
         assert' (o' == o)
-        ftype <- o `envLookupIn` lambda'
-        case ftype of
-            (CType (c, gen, usage)) -> return ()
-            _                       -> fail "Invalid type for field"
-        let (CType (c, gen, usage)) = ftype
-        let resultingUsages = filterUsage m $ transitions usage 
-        (Method tret _ ptype _ _) <- getMethod m gen
+        ftype <- getLambdaField fieldName --o `envLookupIn` lambda'
+        (CType (c, gen, usage)) <- fileTypeCType ftype 
+        let resultingUsages = filterUsages mname $ transitions usage
+        (Method tret _ ptype _ _) <- getMethod mname gen
         assert' (t == ptype)
+        (currentState, _) <- getState
+        let currentEnvironment = environments currentState 
         return $ do
             w <- resultingUsages
-            return (state >> updateLambda o fieldname (CType (c, gen, w)),
+            let lambda''  = lambda currentEnvironment
+            let lambda''' = updateLambda lambda'' o fieldName (CType (c, gen, w))
+            let currentEnvironment' = currentEnvironment { lambda = lambda'' } 
+            return (currentState {environments = currentEnvironment' }, 
                     tret)
 
 
@@ -258,11 +367,76 @@ checkTCallP parametername mname expr = forAll $ do
 
 checkTSeq :: Expression -> Expression -> NDTypeSystem () 
 checkTSeq e1 e2 = do
-    t <- checkExpression e1
-    -- check that everything is done
+    checkExpression e1
+    forAll $ do
+        s <- getState
+        t <- getReturnType
+        assert' (lin t)
+        return [s]
     checkExpression e2
-    fail "abc"
 
+checkTIf :: Expression -> Expression -> Expression -> NDTypeSystem () 
+checkTIf e1 e2 e3 = do
+    checkExpression e1
+    forAll $ do    
+        s <- getState
+        t <- getReturnType
+        assert' (t == BType BoolType)
+        return [s]
+    forAll $ do
+        s <- getState
+        -- make sure they are all equals
+        (_, e2Res) <- fromMaybeM $ runState (checkExpression e2) [s]
+        (_, e3Res) <- fromMaybeM $ runState (checkExpression e3) [s]
+        
+        let e2Res' = [res | res <- e2Res, res `elem` e3Res]
+        let e3Res' = [res | res <- e3Res, res `elem` e2Res]
+        
+        assert' (not (null e2Res')) 
+        assert' (not (null e3Res')) 
+
+        let res = nub $ e2Res' ++ e3Res'
+        
+        return res
+
+checkTLab :: String -> Expression -> NDTypeSystem ()
+checkTLab lbl e1 = forAll $ do
+    (Omega lbls) <- getOmega
+    let found = lbl `envLookupIn` lbls
+    assert' (isNothing found)
+    (lambda, delta) <- getEnvironments    
+    let lbls' = (lbl, (lambda, delta)) : lbls
+    updateOmegaM (Omega lbls')
+    s <- getState
+    (_, states') <- fromMaybeM $ runState (checkExpression e1) [s]
+    return states'
+
+checkTCon :: String -> NDTypeSystem ()
+checkTCon lbl = forAll $ do
+    (Omega lbls)      <- getOmega
+    (lambda, delta)   <- getEnvironments 
+    (lambda', delta') <- fromMaybeM $ lbl `envLookupIn` lbls
+    assert' (lambda == lambda')
+    assert' (delta == delta')
+    s <- getState
+    return [s]
+    
+checkTBool :: Bool -> NDTypeSystem ()
+checkTBool b = forAll $ do
+    (s, _) <- getState
+    return [(s, BType BoolType)]
+
+checkTBot :: NDTypeSystem ()
+checkTBot = forAll $ do
+    (s, _) <- getState
+    return [(s, BotType)]
+
+checkTUnit :: NDTypeSystem ()
+checkTUnit = forAll $ do
+    (s, _) <- getState
+    return [(s, BType VoidType)]
+
+    
 emptyEnv = Environments l d o
     where l = [] 
           d = Delta [] []
