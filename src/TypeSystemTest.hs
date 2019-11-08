@@ -3,10 +3,9 @@ module TypeSystemTest where
 import AST
 import Data.Maybe
 import Control.Monad (ap, liftM, guard, liftM2, forM, when)
-import Data.Maybe
 import Debug.Trace
 import Control.Arrow (second)
-import Data.List (nub)
+import Data.List (nub, sort)
 
 data MState s a = MState { runState :: s -> Maybe (a, s)}
                 | MStateError 
@@ -191,6 +190,9 @@ getOmega = envApply omega
 getEnvironments :: DTypeSystem (Lambda, Delta)
 getEnvironments = liftM2 (,) getLambda getDelta
 
+getEnums :: DTypeSystem [EnumDef]
+getEnums = MState $ \m -> Just (enumsData (fst m), m)
+
 lastDelta :: Delta -> DTypeSystem (ObjectName, (ParameterName, Type)) 
 lastDelta delta = lastM $ dParameterStackTypeEnv delta
 
@@ -319,6 +321,58 @@ findEnum ((EnumDef name litterals):es) litteral =
             then return name 
             else findEnum es litteral
 
+cTypeM :: Monad m => Type -> m Type
+cTypeM t@(CType _) = return t
+cTypeM _           = fail ""
+
+lookupLabels :: Type -> DTypeSystem [String]
+lookupLabels (BType (EnumType name)) = do
+    def <- getEnums
+    lookupLabels' name def
+lookupLabels _                       = fail "" 
+
+
+lookupLabels' :: Monad m => String -> [EnumDef] -> m [String] 
+lookupLabels' name ((EnumDef enumName lbls):xs) = if name == enumName 
+                                                        then return lbls 
+                                                        else lookupLabels' name xs
+lookupLabels' name [] = fail "" 
+
+findUsage :: Monad m => Type -> m Usage
+findUsage (CType (name, gen, usage)) = return usage 
+findUsage _                          = fail "" 
+
+availableChoices :: Monad m => Usage -> m [String]
+availableChoices usage = availableChoices' (current usage) (recursiveUsages usage) []
+    where availableChoices' :: Monad m => UsageImpl -> [(String, UsageImpl)] -> [String] -> m [String]
+          availableChoices' (UsageChoice l)   _   _        = return $ map fst l
+          availableChoices' (UsageBranch l)   _   _        = fail "Branch usage is not a choice"
+          availableChoices' (UsageEnd)        _   _        = fail "End usage is not a choice"
+          availableChoices' (UsageVariable r) rec lookedAt = 
+                if r `elem` lookedAt
+                    then fail "infinite transition found"
+                    else (r `envLookupIn` rec) >>= \usage ->
+                         availableChoices' usage rec (r:lookedAt)
+
+
+doTransition :: Monad m => String -> Usage -> m Usage
+doTransition name u@(Usage cur rec) = 
+    case cur of
+        (UsageChoice xs)  -> (name `envLookupIn` xs) >>= \cur' -> 
+                             return $ u{current = cur'}
+        (UsageBranch xs)  -> name `envLookupIn` xs >>= \cur' ->
+                             return $ u{current = cur'}
+        (UsageEnd)        -> fail $ "branch usage have no transitions"
+        (UsageVariable r) -> r `envLookupIn` rec >>= \cur' ->
+                             doTransition name u{current = cur'}
+
+validCalculations :: [(MyState, Type)] -> [[(MyState, Type)]] -> [(MyState, Type)]
+validCalculations (x:xs) ls = if all (x `elem`) ls
+                                    then x : validCalculations xs ls
+                                    else validCalculations xs ls
+validCalculations []     ls = [] 
+
+
 checkExpression :: Expression -> NDTypeSystem () 
 checkExpression (ExprNew classname gen)     = checkTNew classname gen
 checkExpression (ExprAssign fieldname expr) = checkTFld fieldname expr
@@ -345,11 +399,11 @@ checkTNew cn gen = forAll $ do
     return $ [(currentState, t)]
 
 checkTFld :: String -> Expression -> NDTypeSystem () 
-checkTFld fieldname e = forAll $ do
+checkTFld fieldname expr = forAll $ do
     (lambda, delta)     <- getEnvironments 
     (oname, (x, ftype)) <- lastDelta delta
     ((cname, _), env)   <- oname `envLookupIn` lambda
-    let ndChecked = checkExpression e
+    let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
         t' <- getReturnType
         f <- getField fieldname
@@ -372,7 +426,7 @@ checkTCallF :: String -> MethodName -> Expression -> NDTypeSystem ()
 checkTCallF fieldName mname expr = forAll $ do
     delta <- getDelta
     (o, _) <- lastDelta delta
-    let ndChecked = checkExpression e
+    let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
         t <- getReturnType
         delta' <- getDelta
@@ -397,7 +451,31 @@ checkTCallF fieldName mname expr = forAll $ do
 
 checkTCallP :: String -> MethodName -> Expression -> NDTypeSystem () 
 checkTCallP parametername mname expr = forAll $ do
-    fail "not implemented"
+    delta <- getDelta
+    (o, _) <- lastDelta delta
+    let ndChecked = checkExpression expr
+    convertNDToD $ forAllIn ndChecked $ do
+        t <- getReturnType
+        delta' <- getDelta
+        (o', (x', t')) <- lastDelta delta'
+        assert' (o == o')
+        assert' (parametername == x')
+        (CType (c, gen, usage)) <- cTypeM t
+        let resultingUsages = filterUsages mname $ transitions usage
+        assert' (length resultingUsages > 0)
+        (Method tret _ ptype _ _) <- getMethod mname gen
+        assert' (t == ptype)
+        (lastState, _) <- getState
+        return $ do
+            w <- resultingUsages
+            let newPType = CType (c, gen, w)
+            let finalDelta = initDelta delta' `with` (o', (x', newPType))
+            let lastEnv = environments lastState
+            let finalEnv = lastEnv { delta = finalDelta } 
+            let finalState = lastState { environments = finalEnv  }
+            return (finalState, tret)
+        
+        
 
 checkTSeq :: Expression -> Expression -> NDTypeSystem () 
 checkTSeq e1 e2 = do
@@ -471,7 +549,87 @@ checkTUnit = forAll $ do
     return [(s, BType VoidType)]
 
 checkTSwitch :: Reference -> Expression -> [(String, Expression)] -> NDTypeSystem ()
-checkTSwitch ref e cases = fail "todo"
+checkTSwitch (RefField fieldname)         e cases = checkTSwF fieldname e cases
+checkTSwitch (RefParameter parametername) e cases = checkTSwP parametername e cases
+
+checkTSwP :: String -> Expression -> [(String, Expression)] -> NDTypeSystem ()
+checkTSwP x expr cases = forAll $ do
+    delta <- getDelta
+    (o, s) <- lastDelta delta
+    let ndChecked = checkExpression expr
+    convertNDToD $ forAllIn ndChecked $ do
+        t <- getReturnType
+        delta'' <- getDelta
+        (o', (x', t')) <- lastDelta delta
+        assert' (o == o')
+        assert' (x == x')
+        lbls <- lookupLabels t
+        usage <- findUsage t'
+        transitions <- availableChoices usage
+        assert' (sort lbls == sort transitions)
+        assert' (not (null lbls))
+        s <- getState
+        let computations = map (checkTSwP' cases usage) transitions
+        let computations' = map (\c -> runState c s) computations
+        let computations'' = filter isJust computations' 
+        assert' (length computations'' == length computations')
+        let computations''' = map (fst . fromJust) computations'' 
+        computationsHead <- headM computations''' -- :: [(MyState, Type)]
+        let computationsTail = tail computations'''
+        let accepting = validCalculations computationsHead computationsTail  
+        return accepting
+    
+checkTSwP' :: [(String, Expression)] -> Usage -> String -> DTypeSystem [(MyState, Type)]
+checkTSwP' expr usage transition = do
+    usage' <- doTransition transition usage
+    delta <- getDelta
+    (o, (x, t)) <- lastDelta delta
+    (CType (c, gen, _)) <- cTypeM t
+    let delta' = initDelta delta `with` (o, (x, (CType (c, gen, usage'))))
+    setDelta delta'
+    expr' <- transition `envLookupIn` expr
+    let ndChecked = checkExpression expr'
+    convertNDToD ndChecked 
+
+checkTSwF :: String -> Expression -> [(String, Expression)] -> NDTypeSystem ()
+checkTSwF f expr cases = forAll $ do
+    delta <- getDelta
+    let ndChecked = checkExpression expr
+    convertNDToD $ forAllIn ndChecked $ do
+        t <- getReturnType
+        delta' <- getDelta
+        (o, s) <- lastDelta delta
+        (o', s') <- lastDelta delta'
+        assert' (o == o')
+        ftype <- getLambdaField f
+        lbls <- lookupLabels t 
+        usage <- findUsage ftype
+        transitions <- availableChoices usage
+        assert' (sort lbls == sort transitions)
+        assert' (length lbls > 0)
+        s <- getState
+        let computations = map (checkTSwF' cases usage f) transitions
+        let computations' = map (\c -> runState c s) computations
+        let computations'' = filter isJust computations' 
+        assert' (length computations'' == length computations')
+        let computations''' = map (fst . fromJust) computations'' 
+        computationsHead <- headM computations''' -- :: [(MyState, Type)]
+        let computationsTail = tail computations'''
+        let accepting = validCalculations computationsHead computationsTail  
+        return accepting
+
+
+checkTSwF' :: [(String, Expression)] -> Usage -> String -> String -> DTypeSystem [(MyState, Type)]
+checkTSwF' expr usage f transition = do
+    delta <- getDelta
+    usage' <- doTransition transition usage
+    (o, _) <- lastDelta delta
+    t <- getLambdaField f
+    (CType (c, gen, _)) <- cTypeM t
+    updateLambdaM o f (CType (c, gen, usage'))
+    expr' <- transition `envLookupIn` expr
+    let ndChecked = checkExpression expr'
+    convertNDToD ndChecked 
 
 checkTRet :: Expression -> NDTypeSystem ()
 checkTRet e = forAll $ do
@@ -511,8 +669,7 @@ checkTFldRef fieldname = forAll $ do
     
 checkTLit :: String -> NDTypeSystem ()
 checkTLit lit = forAll $ do
-    (myState, _) <- getState
-    let enums = enumsData myState
+    enums <- getEnums
     e <- findEnum enums lit
     (s, _) <- getState
     return [(s, BType (EnumType e))]
