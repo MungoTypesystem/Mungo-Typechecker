@@ -6,6 +6,8 @@ import Control.Monad (ap, liftM, guard, liftM2, forM, when)
 import Debug.Trace
 import Control.Arrow (second)
 import Data.List (nub, sort)
+import qualified Control.Monad.Fail as Fail
+
 
 data MState s a = MState { runState :: s -> Maybe (a, s)}
                 | MStateError 
@@ -30,6 +32,9 @@ instance Monad (MState s) where
                                             otherwise  -> Nothing
     (MStateError) >>= f = MStateError                                    
 
+instance Fail.MonadFail (MState s) where
+    fail str         = MStateError 
+
 getState :: MState s s
 getState = MState $ \m -> Just (m, m)
 
@@ -42,7 +47,6 @@ evalState act = fst . runState act --}
 execState :: MState s a -> s -> s -> s
 execState act otherwise startState = fromMaybe otherwise (snd <$> runState act startState)
 
-type FieldTypeEnv = [(FieldName, Type)] 
 
 type Lambda = [(ObjectName, ((ClassName, Type), FieldTypeEnv))]
 
@@ -100,11 +104,9 @@ forAll :: DTypeSystem [(MyState, Type)] -> NDTypeSystem ()
 forAll f = do
     states <- getState
     let states' = concat $ map fst $ catMaybes $ map (runState f) states 
-    --let envs    = map snd' states' 
-    --let values  = map fst' states' 
     rewriteStates states' 
-    -- make sure all values are the same
     return ()
+
 forAllIn :: NDTypeSystem () -> DTypeSystem [(MyState, Type)] -> NDTypeSystem ()
 forAllIn ts f = ts >> forAll f
 
@@ -613,9 +615,9 @@ checkTSwF f expr cases = forAll $ do
         let computations'' = filter isJust computations' 
         assert' (length computations'' == length computations')
         let computations''' = map (fst . fromJust) computations'' 
-        computationsHead <- headM computations''' -- :: [(MyState, Type)]
-        let computationsTail = tail computations'''
-        let accepting = validCalculations computationsHead computationsTail  
+        computationHead <- headM computations''' -- :: [(MyState, Type)]
+        let computationTail = tail computations'''
+        let accepting = validCalculations computationHead computationTail 
         return accepting
 
 
@@ -695,47 +697,225 @@ emptyState = MyState emptyEnv (ClassData [Class "cls" ClassNoGeneric (Usage Usag
 e = (ExprNew "cls" GenericBot)
 m = runState (checkExpression e) [(emptyState, BotType)]
 
-{--type NDState a = MState [Int] a
-type DState a  = MState Int a
+-- typing class usage definitions
 
-rewriteStates :: [Int] -> NDState ()
-rewriteStates ls = MState $ \_ -> Just ((), ls)
 
-forAll :: DState [(a, Int)] -> NDState [a]
-forAll f = do
+type FieldTypeEnv = [(FieldName, Type)] 
+type RecursiveEnv = [(UsageVarName, FieldTypeEnv)]
+
+data UsageState = UsageState { fieldTypeEnv     :: FieldTypeEnv
+                             , recursiveEnv     :: RecursiveEnv
+                             , recursiveUsages' :: [(String, UsageImpl)]
+                             , classInfo        :: ClassData 
+                             , enumsInfo        :: [EnumDef]
+                             } deriving (Show)
+
+instance Eq UsageState where
+    a == b = fieldTypeEnv a == fieldTypeEnv b
+
+type DUsageState a  = MState UsageState a
+type NDUsageState a = MState [UsageState] a
+
+rewriteStates' :: [UsageState] -> NDUsageState ()
+rewriteStates' ls = MState $ \_ -> Just ((), ls)
+
+getRecursiveUsages :: DUsageState [(String, UsageImpl)]
+getRecursiveUsages = MState $ \s -> Just (recursiveUsages' s, s)
+
+setRecursiveUsages :: [(String, UsageImpl)] -> DUsageState ()
+setRecursiveUsages rec = MState $ \s -> Just ((), s {recursiveUsages' = rec})
+
+getRecursiveEnv :: DUsageState RecursiveEnv 
+getRecursiveEnv = MState $ \s -> Just (recursiveEnv s, s)
+
+setRecursiveEnv :: RecursiveEnv -> DUsageState ()
+setRecursiveEnv recEnv = MState $ \s -> Just ((), s { recursiveEnv = recEnv})
+
+getFieldTypeEnv :: DUsageState FieldTypeEnv 
+getFieldTypeEnv = MState $ \s -> Just (fieldTypeEnv s, s)
+
+setFieldTypeEnv :: FieldTypeEnv -> DUsageState ()
+setFieldTypeEnv ftenv = MState $ \s -> Just ((), s { fieldTypeEnv = ftenv})
+
+
+forAll' :: DUsageState [UsageState] -> NDUsageState ()
+forAll' f = do
     states <- getState
     let states' = concat $ map fst $ catMaybes $ map (runState f) states 
-    let envs    = map snd states' :: [Int]
-    let values  = map fst states' 
-    rewriteStates envs
-    return values 
+    rewriteStates' states' 
+    return ()
 
-checkExpr :: Expr -> NDState [Int]
-checkExpr ExprAdd         = exprAdd
-checkExpr (ExprEq n)      = exprEq n
-checkExpr (ExprSeq e1 e2) = exprSeq e1 e2
+convertNDToD' :: NDUsageState () -> DUsageState [UsageState]
+convertNDToD' nd = do 
+    s <- getState
+    (_, newStates) <- fromMaybeM $ runState nd [s]
+    return $ newStates
 
-exprAdd :: NDState [Int]
-exprAdd = forAll $ do
-    v <- getState
-    return $ do 
-        m <- [0,2]
-        return (v, (v + m))
+allValidStates :: [[UsageState]] -> [UsageState]
+allValidStates []         = []
+allValidStates (x:states) = do
+    s <- x
+    states' <- states
+    guard (s `elem` states')
+    return s
+    
+checkTUsage :: UsageImpl -> NDUsageState ()
+checkTUsage usage = case usage of
+    (UsageChoice lst)      -> checkTCCh lst
+    (UsageBranch lst)      -> checkTCBr lst
+    (UsageVariable x)      -> checkTCVariable x
+    (UsageEnd)             -> checkTCEn 
+    (UsageGenericVariable) -> fail "should not happen"
 
-exprEq :: Int -> NDState [Int]
-exprEq n = forAll $ do
-    v <- getState
-    --trace ("|" ++ show v ++ show n ++ "|") $ assert' (v == n)
-    return $ return (v, v)
+checkTCCh :: [(String, UsageImpl)] -> NDUsageState ()
+checkTCCh lst = forAll' $ do 
+     -- run all (String, UsageImpl) and check that they give the same result   
+    s <- getState
+    let runnable = (map (checkTUsage  . snd)) lst
+    let result = map (\v -> runState v [s]) runnable
+    assert' (all isJust result)
+    let result'  = map (snd . fromJust) result
+    let result'' = allValidStates result'
+    return result''
 
-exprSeq :: Expr -> Expr -> NDState [Int]
-exprSeq e1 e2 = do
-    checkExpr e1
-    checkExpr e2
+findClassCurrent' :: DUsageState String
+findClassCurrent' = do
+    s <- getState
+    let classInfos = classInfo s
+    return $ checkingClass classInfos
+    
+findClass' :: String -> DUsageState Class
+findClass' name = do
+    s <- getState
+    let classInfos   = classInfo s
+    let currentClass = checkingClass classInfos
+    let classes      = allClasses classInfos
+    let found = filter ((name ==) . cname) classes
+    headM found
 
-assert' :: Monad m => Bool -> m ()
-assert' True  = fail "failed"
-assert' False = return ()
+findMethod' :: String -> DUsageState Method
+findMethod' name = do
+    s <- getState
+    let classInfos   = classInfo s
+    let currentClass = checkingClass classInfos
+    clz <- findClass' currentClass
+    let methods      = cmethods clz 
+    let ms = filter ((name ==) . mname) methods 
+    headM $ filter (\m1 -> (mname m1) == name) ms
 
-e = (ExprSeq (ExprSeq ExprAdd ExprAdd) (ExprEq 2))
-v = runState (checkExpr e) [0] --}
+checkTCBr :: [(String, UsageImpl)] -> NDUsageState ()
+checkTCBr lst = forAll' $ do
+    assert' (not (null lst))
+    fail "uwu"
+
+checkTCBr' :: String -> UsageImpl -> NDUsageState ()
+checkTCBr' lbl uimpl = forAll' $ do
+    s <- getState
+    bindings <- getRecursiveUsages
+    method <- findMethod' lbl 
+    currentClass <- findClassCurrent' 
+    c <- findClass' currentClass
+    envTf <- getFieldTypeEnv
+    let lambda = [("this", ((cname c, CType (cname c, GenericBot, Usage uimpl bindings)), envTf))]
+    let delta = Delta [] [("this", (parname method, partype method))]
+    let theta = Omega []
+    let env = Environments lambda delta theta 
+    let classes = classInfo s
+    let enums  = enumsInfo s
+    let myState = MyState env classes enums 
+    let expr = mexpr method
+    let res = runState (checkExpression expr) [(myState, BotType)]
+    res' <- snd <$> fromMaybeM res
+    -- check res' that return type fits the return type
+    -- check res' that envTf can continue with the current State
+    -- check res' that the parameter is terminated
+    s <- getState
+    let terminated = not . lin
+    return $ do
+        (myState, ti) <- res'
+        let (Environments lambda' delta' _) = environments myState
+        let paramStack = dParameterStackTypeEnv delta'
+        guard (not (null paramStack))
+        let (o, (pname, ti'')) = last paramStack
+        guard (terminated ti'')
+        let finalRes = runState (checkTUsage uimpl) [s]
+        guard (isJust finalRes)
+        let finalRes' = fromJust finalRes
+        snd finalRes'
+
+checkTCVariable :: String -> NDUsageState ()
+checkTCVariable x = forAll' $ do
+    rec <- getRecursiveEnv
+    if isJust (x `lookup` rec)
+        then checkTCRec x
+        else checkTCVar x 
+
+checkTCRec :: String -> DUsageState [UsageState]
+checkTCRec x = do
+    rec <- getRecursiveUsages
+    usage <- x `envLookupIn` rec
+    let rec' = filter ((/= x) . fst) rec
+    setRecursiveUsages rec'
+    recursiveEnv <- getRecursiveEnv
+    fieldTypeEnv <- getFieldTypeEnv
+    assert' (isNothing (x `lookup` recursiveEnv))
+    let recursiveEnv' = (x, fieldTypeEnv) : recursiveEnv
+    setRecursiveEnv recursiveEnv'
+    convertNDToD' $ checkTUsage usage
+
+checkTCVar :: String -> DUsageState [UsageState]
+checkTCVar x = do
+    recursiveEnv <- getRecursiveEnv
+    fieldTypeEnv <- getFieldTypeEnv
+    fieldTypeEnv' <- x `envLookupIn` recursiveEnv
+    assert' (fieldTypeEnv == fieldTypeEnv')
+    s <- getState
+    return [s]
+
+checkTCEn :: NDUsageState ()
+checkTCEn = forAll' $ do
+    s <- getState
+    return [s]
+
+checkTProg :: [Class] -> [EnumDef] -> Either String ()
+checkTProg cls enums = 
+    checkTProg' cls enums cls
+
+checkTProg' cls enums [] = Right ()
+checkTProg' cls enums (c:cs) = 
+    let checkTClassRes = checkTClass cls enums c
+        checkTProgRes  = checkTProg' cls enums cs
+        res            = checkTClassRes >> checkTProgRes
+    in res
+
+checkTClass :: [Class] -> [EnumDef] -> Class -> Either String ()
+checkTClass cls enums c = 
+    let c'   = insertTopTypeClassEasy c
+        name = cname c 
+        cls' = c' : filter (\x -> cname x /= name) cls
+    in checkTClass' cls' enums c'
+ 
+checkTClass' :: [Class] -> [EnumDef] -> Class -> Either String ()
+checkTClass' cls enums c = 
+    let classname = cname c
+        usage = cusage c
+        classdata = ClassData cls classname
+        state = UsageState (initFields (cfields c)) [] (recursiveUsages usage) classdata enums
+        term = runState (checkTUsage (current usage)) [state] 
+    in case term of 
+            (Just (_, term')) -> if any (\term'' -> 
+                                                terminatedEnv (fieldTypeEnv term'')) term'
+                                    then Right ()
+                                    else Left "no terminated"
+            Nothing    -> Left "something wrong" 
+
+initFields :: [Field] -> [(FieldName, Type)]
+initFields [] = []
+initFields ((Field (BaseFieldType b) name):flds) = (name, BType b):(initFields flds)
+initFields ((Field (ClassFieldGen c gen) name):flds) = (name, BotType):(initFields flds)
+initFields ((Field GenericField name):flds) = error "Wrong field type, not instantiated"
+
+terminatedEnv :: FieldTypeEnv -> Bool
+terminatedEnv [] = True
+terminatedEnv ((n, t):env) = not (lin t) && terminatedEnv env
+

@@ -6,7 +6,7 @@ import AST
 import Data.Either
 import Control.Monad
 --import SanityCheck
-import TypeSystem
+import TypeSystemTest
 
 simpleFile = 
     "../ExamplePrograms/generic.mg"
