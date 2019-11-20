@@ -4,6 +4,29 @@ enum FileStatus
 	EOF
 }
 
+
+class RecursiveRead
+{
+	{readR; end
+	 closeR; end}[]
+	
+	RecursiveRead reader
+	
+	void readR(File[readable] f) {
+		reader = new RecursiveRead;
+		switch(f.isEOF(unit)) {
+			NOTEOF: f.read(unit);
+					reader.readR(f)
+			EOF:    reader.closeR(f)
+		};
+		reader = null
+	}
+	
+	void closeR(File[{close; end}] f) {
+		f.close(unit)
+	}
+} 
+
 class File {
 	{open; readable} [
 		readable = {
@@ -40,26 +63,6 @@ class File {
 
 
 
-class RecursiveRead
-{
-	{read; end
-	 close; end}[]
-	
-	RecursiveRead reader
-	
-	void read(File[readable] f) {
-		reader = new RecursiveRead;
-		switch(f.isEOF(unit)) {
-			NOTEOF: f.read(unit);
-					reader.read(f)
-			EOF:    reader.close(f)
-		}
-	}
-	
-	void close(File[{close; end}] f) {
-		f.close(unit)
-	}
-} 
 
 
 class start {
@@ -72,6 +75,6 @@ class start {
 		file = new File;
 		file.open(unit);
 		recursiveRead = new RecursiveRead;
-		recursiveRead.read(file)
+		recursiveRead.readR(file)
 	}	
 }

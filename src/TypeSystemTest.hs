@@ -3,18 +3,22 @@ module TypeSystemTest where
 import AST
 import Data.Maybe
 import Control.Monad (ap, liftM, guard, liftM2, forM, when)
-import Debug.Trace
 import Control.Arrow (second)
 import Data.List (nub, sort)
 import qualified Control.Monad.Fail as Fail
+import Debug.Trace (trace)
+import Data.Either (rights, isRight, fromRight)
 
+debugTrace str = do
+    trace str $ return ()
+    --return ()
 
-data MState s a = MState { runState :: s -> Maybe (a, s)}
-                | MStateError 
+data MState s a = MState { runState :: s -> Either String (a, s)}
+                | MStateError String
 
 instance Show (MState s a) where
     show (MState _)   = "mstate"
-    show (MStateError) = "mstate fail"
+    show (MStateError err) = "mstate err " ++ err 
 
 instance Functor (MState s) where
     fmap = Control.Monad.liftM
@@ -24,28 +28,28 @@ instance Applicative (MState s) where
     (<*>) = Control.Monad.ap
 
 instance Monad (MState s) where
-    return x         = MState $ \s -> Just (x, s)
-    fail str         = MStateError 
+    return x         = MState $ \s -> Right (x, s)
+    fail str         = MStateError str
     (MState h) >>= f = MState $ \s -> do (a, newState) <- h s 
                                          case f a of
                                             (MState g) -> g newState
-                                            otherwise  -> Nothing
-    (MStateError) >>= f = MStateError                                    
+                                            (MStateError err) -> Left err
+    (MStateError str) >>= f = MStateError str                                  
 
 instance Fail.MonadFail (MState s) where
-    fail str         = MStateError 
+    fail str         = MStateError str
 
 getState :: MState s s
-getState = MState $ \m -> Just (m, m)
+getState = MState $ \m -> Right (m, m)
 
 setState :: s -> MState s ()
-setState v = MState $ \m -> Just ((), v)
+setState v = MState $ \m -> Right ((), v)
 
 {--evalState :: MState s a -> s -> a
 evalState act = fst . runState act --}
  
-execState :: MState s a -> s -> s -> s
-execState act otherwise startState = fromMaybe otherwise (snd <$> runState act startState)
+--execState :: MState s a -> s -> s -> s
+--execState act otherwise startState = fromMaybe otherwise (snd <$> runState act startState)
 
 
 type Lambda = [(ObjectName, ((ClassName, Type), FieldTypeEnv))]
@@ -91,19 +95,34 @@ instance Eq MyState where
 type NDTypeSystem a = MState [(MyState, Type)] a
 type DTypeSystem  a = MState (MyState, Type) a
 
+(===) :: FieldTypeEnv -> FieldTypeEnv -> Bool
+((n1, BType b1):xs1)     === ((n2, BType b2):xs2)     = n1 == n2 && b1 == b2 && xs1 == xs2
+((n1, BotType ):xs1)     === ((n2, BotType):xs2)      = n1 == n2 && True && xs1 == xs2
+((n1, CType c1):xs1)     === ((n2, CType c2):xs2)     = n1 == n2 && c1 == c2 && xs1 == xs2
+((n1, BotType) :xs1)     === ((n2, CType (_, _, u)):xs2) = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
+((n1, CType (_, _, u)):xs1) === ((n2, BotType):xs2)      = n1 == n2 && (current u) == UsageEnd && xs1 == xs2
+[]                       === []                       = True
+_                        === _                        = False 
+
+allEqual :: [FieldTypeEnv] -> Bool
+allEqual []        = True
+allEqual (a:[])    = True
+allEqual (a:b:lst) = a === b && allEqual (b:lst)
+ 
+
 rewriteStates :: [(MyState, Type)] -> NDTypeSystem ()
-rewriteStates ls = MState $ \_ -> Just ((), ls)
+rewriteStates ls = MState $ \_ -> Right ((), ls)
 
 getMyState ::  DTypeSystem MyState
-getMyState = MState $ \m -> Just (fst m, m)
+getMyState = MState $ \m -> Right (fst m, m)
 
 getReturnType :: DTypeSystem Type 
-getReturnType = MState $ \m -> Just (snd m, m)
+getReturnType = MState $ \m -> Right (snd m, m)
 
 forAll :: DTypeSystem [(MyState, Type)] -> NDTypeSystem ()
 forAll f = do
     states <- getState
-    let states' = concat $ map fst $ catMaybes $ map (runState f) states 
+    let states' = concat $ map fst $ rights $ map (runState f) states 
     rewriteStates states' 
     return ()
 
@@ -124,9 +143,13 @@ initM [] = fail ""
 initM xs = return $ init xs
 
 
-fromMaybeM :: Monad m => Maybe a -> m a
+fromEitherM :: Monad m => Either String b -> m b
+fromEitherM (Right x) = return x
+fromEitherM (Left x)  = fail x
+
+fromMaybeM :: Monad m => Maybe b -> m b
 fromMaybeM (Just x) = return x
-fromMaybeM Nothing  = fail "nothing"
+fromMaybeM _        = fail ""
 
 -- helper rewrite classes
 insertTopTypeClassEasy = 
@@ -163,10 +186,10 @@ insertTopTypeType replacement a     = a
 
 -- state lookup
 envApply :: (Environments -> a) -> DTypeSystem a
-envApply f = MState $ \m -> Just $ (f (environments (fst m)), m)
+envApply f = MState $ \m -> Right $ (f (environments (fst m)), m)
 
 getClassData :: DTypeSystem ClassData
-getClassData = MState $ \m -> Just (classData (fst m), m)
+getClassData = MState $ \m -> Right (classData (fst m), m)
 
 findClass :: String -> DTypeSystem Class
 findClass name = do
@@ -193,7 +216,7 @@ getEnvironments :: DTypeSystem (Lambda, Delta)
 getEnvironments = liftM2 (,) getLambda getDelta
 
 getEnums :: DTypeSystem [EnumDef]
-getEnums = MState $ \m -> Just (enumsData (fst m), m)
+getEnums = MState $ \m -> Right (enumsData (fst m), m)
 
 lastDelta :: Delta -> DTypeSystem (ObjectName, (ParameterName, Type)) 
 lastDelta delta = lastM $ dParameterStackTypeEnv delta
@@ -210,7 +233,7 @@ setDelta d = do
 convertNDToD :: NDTypeSystem () -> DTypeSystem [(MyState, Type)]
 convertNDToD nd = do 
     s <- getState
-    (a, newStates) <- fromMaybeM $ runState nd [s]
+    (a, newStates) <- fromEitherM $ runState nd [s]
     return $ newStates
 
 envLookupIn :: (Monad m, Eq a) => a -> [(a, b)] -> m b
@@ -224,14 +247,12 @@ getField fieldname = do
     field <- headM $ filter (\f -> fname f == fieldname) $ cfields clazz
     return $ ftype field
 
-getMethod methodname GenericBot = do 
-    classname <- getCurrentClass
+getMethod classname methodname GenericBot = do 
     cls       <- getAllClasses
     clazz <- headM $ filter (\c -> cname c == classname) cls
     headM $ filter (\m -> mname m == methodname) $ cmethods clazz
     
-getMethod methodname (GenericInstance gcname g u) = do
-    classname <- getCurrentClass
+getMethod classname methodname (GenericInstance gcname g u) = do
     cls       <- getAllClasses
     clazz <- headM $ filter (\c -> cname c == classname) cls
     let t'    = CType (gcname, g, u)
@@ -240,7 +261,7 @@ getMethod methodname (GenericInstance gcname g u) = do
 
 getLambdaField :: String -> DTypeSystem Type 
 getLambdaField fieldname = do
-    classname <- getCurrentClass
+    let classname = "this"
     lambda <- getLambda
     ((clazzname, t), env)<- classname `envLookupIn` lambda
     fieldname `envLookupIn` env
@@ -368,29 +389,45 @@ doTransition name u@(Usage cur rec) =
         (UsageVariable r) -> r `envLookupIn` rec >>= \cur' ->
                              doTransition name u{current = cur'}
 
+validEnvironments :: Eq a => [a] -> [[a]] -> [a]
+validEnvironments (x:xs) ls = if all (x `elem`) ls
+                                    then x : validEnvironments xs ls
+                                    else validEnvironments xs ls
+validEnvironments []     ls = []
+
+
+
 validCalculations :: [(MyState, Type)] -> [[(MyState, Type)]] -> [(MyState, Type)]
 validCalculations (x:xs) ls = if all (x `elem`) ls
                                     then x : validCalculations xs ls
                                     else validCalculations xs ls
 validCalculations []     ls = [] 
 
-
 checkExpression :: Expression -> NDTypeSystem () 
-checkExpression (ExprNew classname gen)     = checkTNew classname gen
-checkExpression (ExprAssign fieldname expr) = checkTFld fieldname expr
-checkExpression (ExprCall ref mname e)      = checkTCall ref mname e
-checkExpression (ExprSeq e1 e2)             = checkTSeq e1 e2
-checkExpression (ExprIf e1 e2 e3)           = checkTIf e1 e2 e3
-checkExpression (ExprLabel lbl e1)          = checkTLab lbl e1
-checkExpression (ExprContinue lbl)          = checkTCon lbl
-checkExpression (ExprBoolConst b)           = checkTBool b
-checkExpression (ExprNull)                  = checkTBot
-checkExpression (ExprUnit)                  = checkTUnit 
-checkExpression (ExprSwitch ref e cases)    = checkTSwitch ref e cases
-checkExpression (ExprReturn e)              = checkTRet e
-checkExpression (ExprReference ref)         = checkTRef ref
-checkExpression (ExprLitteral str)          = checkTLit str
-checkExpression (ExprObjectName o)          = checkTObj o 
+checkExpression e = do
+    s <- getState
+    checkExpression' e
+    s' <- getState
+    when (null s' && (not (null s)) ) $ debugTrace $ "error in " ++  show e
+    --debugTrace $ show e ++ " | " ++ show (length s) ++ " -> " ++ show (length s')
+
+
+checkExpression' :: Expression -> NDTypeSystem () 
+checkExpression' (ExprNew classname gen)     = checkTNew classname gen
+checkExpression' (ExprAssign fieldname expr) = checkTFld fieldname expr
+checkExpression' (ExprCall ref mname e)      = checkTCall ref mname e
+checkExpression' (ExprSeq e1 e2)             = checkTSeq e1 e2
+checkExpression' (ExprIf e1 e2 e3)           = checkTIf e1 e2 e3
+checkExpression' (ExprLabel lbl e1)          = checkTLab lbl e1
+checkExpression' (ExprContinue lbl)          = checkTCon lbl
+checkExpression' (ExprBoolConst b)           = checkTBool b
+checkExpression' (ExprNull)                  = checkTBot
+checkExpression' (ExprUnit)                  = checkTUnit 
+checkExpression' (ExprSwitch ref e cases)    = checkTSwitch ref e cases
+checkExpression' (ExprReturn e)              = checkTRet e
+checkExpression' (ExprReference ref)         = checkTRef ref
+checkExpression' (ExprLitteral str)          = checkTLit str
+checkExpression' (ExprObjectName o)          = checkTObj o 
 
 checkTNew :: String -> GenericInstance -> NDTypeSystem () 
 checkTNew cn gen = forAll $ do
@@ -438,7 +475,7 @@ checkTCallF fieldName mname expr = forAll $ do
         ftype <- getLambdaField fieldName --o `envLookupIn` lambda'
         (CType (c, gen, usage)) <- fileTypeCType ftype 
         let resultingUsages = filterUsages mname $ transitions usage
-        (Method tret _ ptype _ _) <- getMethod mname gen
+        (Method tret _ ptype _ _) <- getMethod c mname gen
         assert' (t == ptype)
         (currentState, _) <- getState
         let currentEnvironment = environments currentState 
@@ -446,7 +483,7 @@ checkTCallF fieldName mname expr = forAll $ do
             w <- resultingUsages
             let lambda''  = lambda currentEnvironment
             let lambda''' = updateLambda lambda'' o fieldName (CType (c, gen, w))
-            let currentEnvironment' = currentEnvironment { lambda = lambda'' } 
+            let currentEnvironment' = currentEnvironment { lambda = lambda''' } 
             return (currentState {environments = currentEnvironment' }, 
                     tret)
 
@@ -462,10 +499,10 @@ checkTCallP parametername mname expr = forAll $ do
         (o', (x', t')) <- lastDelta delta'
         assert' (o == o')
         assert' (parametername == x')
-        (CType (c, gen, usage)) <- cTypeM t
+        (CType (c, gen, usage)) <- cTypeM t'
         let resultingUsages = filterUsages mname $ transitions usage
         assert' (length resultingUsages > 0)
-        (Method tret _ ptype _ _) <- getMethod mname gen
+        (Method tret _ ptype _ _) <- getMethod c mname gen
         assert' (t == ptype)
         (lastState, _) <- getState
         return $ do
@@ -476,8 +513,8 @@ checkTCallP parametername mname expr = forAll $ do
             let finalEnv = lastEnv { delta = finalDelta } 
             let finalState = lastState { environments = finalEnv  }
             return (finalState, tret)
-        
-        
+
+
 
 checkTSeq :: Expression -> Expression -> NDTypeSystem () 
 checkTSeq e1 e2 = do
@@ -485,7 +522,7 @@ checkTSeq e1 e2 = do
     forAll $ do
         s <- getState
         t <- getReturnType
-        assert' (lin t)
+        assert' (not (lin t))
         return [s]
     checkExpression e2
 
@@ -500,8 +537,8 @@ checkTIf e1 e2 e3 = do
     forAll $ do
         s <- getState
         -- make sure they are all equals
-        (_, e2Res) <- fromMaybeM $ runState (checkExpression e2) [s]
-        (_, e3Res) <- fromMaybeM $ runState (checkExpression e3) [s]
+        (_, e2Res) <- fromEitherM $ runState (checkExpression e2) [s]
+        (_, e3Res) <- fromEitherM $ runState (checkExpression e3) [s]
         
         let e2Res' = [res | res <- e2Res, res `elem` e3Res]
         let e3Res' = [res | res <- e3Res, res `elem` e2Res]
@@ -522,18 +559,18 @@ checkTLab lbl e1 = forAll $ do
     let lbls' = (lbl, (lambda, delta)) : lbls
     updateOmegaM (Omega lbls')
     s <- getState
-    (_, states') <- fromMaybeM $ runState (checkExpression e1) [s]
+    (_, states') <- fromEitherM $ runState (checkExpression e1) [s]
     return states'
 
 checkTCon :: String -> NDTypeSystem ()
 checkTCon lbl = forAll $ do
     (Omega lbls)      <- getOmega
     (lambda, delta)   <- getEnvironments 
-    (lambda', delta') <- fromMaybeM $ lbl `envLookupIn` lbls
+    (lambda', delta') <- fromEitherM $ lbl `envLookupIn` lbls
     assert' (lambda == lambda')
     assert' (delta == delta')
-    s <- getState
-    return [s]
+    (s, _) <- getState
+    return [(s, BType VoidType)]
     
 checkTBool :: Bool -> NDTypeSystem ()
 checkTBool b = forAll $ do
@@ -562,7 +599,7 @@ checkTSwP x expr cases = forAll $ do
     convertNDToD $ forAllIn ndChecked $ do
         t <- getReturnType
         delta'' <- getDelta
-        (o', (x', t')) <- lastDelta delta
+        (o', (x', t')) <- lastDelta delta''
         assert' (o == o')
         assert' (x == x')
         lbls <- lookupLabels t
@@ -573,9 +610,9 @@ checkTSwP x expr cases = forAll $ do
         s <- getState
         let computations = map (checkTSwP' cases usage) transitions
         let computations' = map (\c -> runState c s) computations
-        let computations'' = filter isJust computations' 
+        let computations'' = filter isRight computations' 
         assert' (length computations'' == length computations')
-        let computations''' = map (fst . fromJust) computations'' 
+        let computations''' = map fst $ rights computations'' 
         computationsHead <- headM computations''' -- :: [(MyState, Type)]
         let computationsTail = tail computations'''
         let accepting = validCalculations computationsHead computationsTail  
@@ -592,6 +629,7 @@ checkTSwP' expr usage transition = do
     expr' <- transition `envLookupIn` expr
     let ndChecked = checkExpression expr'
     convertNDToD ndChecked 
+
 
 checkTSwF :: String -> Expression -> [(String, Expression)] -> NDTypeSystem ()
 checkTSwF f expr cases = forAll $ do
@@ -612,9 +650,9 @@ checkTSwF f expr cases = forAll $ do
         s <- getState
         let computations = map (checkTSwF' cases usage f) transitions
         let computations' = map (\c -> runState c s) computations
-        let computations'' = filter isJust computations' 
+        let computations'' = filter isRight computations' 
         assert' (length computations'' == length computations')
-        let computations''' = map (fst . fromJust) computations'' 
+        let computations''' = map fst $ rights computations'' 
         computationHead <- headM computations''' -- :: [(MyState, Type)]
         let computationTail = tail computations'''
         let accepting = validCalculations computationHead computationTail 
@@ -657,8 +695,8 @@ checkTParRef parametername = forAll $ do
     (o, (x, t)) <- lastDelta delta
     (myState, _) <- getState
     when (lin t) $ setDelta ((initDelta delta) `with` (o, (x, BotType)))
-    updatedState <- getState
-    return [updatedState]
+    (updatedState, _) <- getState
+    return [(updatedState, t)]
     
 checkTFldRef :: String -> NDTypeSystem ()
 checkTFldRef fieldname = forAll $ do 
@@ -666,8 +704,8 @@ checkTFldRef fieldname = forAll $ do
     (o, s) <- lastDelta delta
     t <- getLambdaField fieldname
     when (lin t) $ updateLambdaM o fieldname BotType
-    s <- getState
-    return [s]
+    (s, _) <- getState
+    return [(s, t)]
     
 checkTLit :: String -> NDTypeSystem ()
 checkTLit lit = forAll $ do
@@ -717,38 +755,38 @@ type DUsageState a  = MState UsageState a
 type NDUsageState a = MState [UsageState] a
 
 rewriteStates' :: [UsageState] -> NDUsageState ()
-rewriteStates' ls = MState $ \_ -> Just ((), ls)
+rewriteStates' ls = MState $ \_ -> Right ((), ls)
 
 getRecursiveUsages :: DUsageState [(String, UsageImpl)]
-getRecursiveUsages = MState $ \s -> Just (recursiveUsages' s, s)
+getRecursiveUsages = MState $ \s -> Right (recursiveUsages' s, s)
 
 setRecursiveUsages :: [(String, UsageImpl)] -> DUsageState ()
-setRecursiveUsages rec = MState $ \s -> Just ((), s {recursiveUsages' = rec})
+setRecursiveUsages rec = MState $ \s -> Right ((), s {recursiveUsages' = rec})
 
 getRecursiveEnv :: DUsageState RecursiveEnv 
-getRecursiveEnv = MState $ \s -> Just (recursiveEnv s, s)
+getRecursiveEnv = MState $ \s -> Right (recursiveEnv s, s)
 
 setRecursiveEnv :: RecursiveEnv -> DUsageState ()
-setRecursiveEnv recEnv = MState $ \s -> Just ((), s { recursiveEnv = recEnv})
+setRecursiveEnv recEnv = MState $ \s -> Right ((), s { recursiveEnv = recEnv})
 
 getFieldTypeEnv :: DUsageState FieldTypeEnv 
-getFieldTypeEnv = MState $ \s -> Just (fieldTypeEnv s, s)
+getFieldTypeEnv = MState $ \s -> Right (fieldTypeEnv s, s)
 
 setFieldTypeEnv :: FieldTypeEnv -> DUsageState ()
-setFieldTypeEnv ftenv = MState $ \s -> Just ((), s { fieldTypeEnv = ftenv})
+setFieldTypeEnv ftenv = MState $ \s -> Right ((), s { fieldTypeEnv = ftenv})
 
 
 forAll' :: DUsageState [UsageState] -> NDUsageState ()
 forAll' f = do
     states <- getState
-    let states' = concat $ map fst $ catMaybes $ map (runState f) states 
+    let states' = concat $ map fst $ rights $ map (runState f) states 
     rewriteStates' states' 
     return ()
 
 convertNDToD' :: NDUsageState () -> DUsageState [UsageState]
 convertNDToD' nd = do 
     s <- getState
-    (_, newStates) <- fromMaybeM $ runState nd [s]
+    (_, newStates) <- fromEitherM $ runState nd [s]
     return $ newStates
 
 allValidStates :: [[UsageState]] -> [UsageState]
@@ -760,21 +798,22 @@ allValidStates (x:states) = do
     return s
     
 checkTUsage :: UsageImpl -> NDUsageState ()
-checkTUsage usage = case usage of
-    (UsageChoice lst)      -> checkTCCh lst
-    (UsageBranch lst)      -> checkTCBr lst
-    (UsageVariable x)      -> checkTCVariable x
-    (UsageEnd)             -> checkTCEn 
-    (UsageGenericVariable) -> fail "should not happen"
+checkTUsage usage = 
+    case usage of
+        (UsageChoice lst)      -> checkTCCh lst
+        (UsageBranch lst)      -> checkTCBr lst
+        (UsageVariable x)      -> checkTCVariable x
+        (UsageEnd)             -> checkTCEn 
+        (UsageGenericVariable) -> fail "should not happen"
 
 checkTCCh :: [(String, UsageImpl)] -> NDUsageState ()
 checkTCCh lst = forAll' $ do 
-     -- run all (String, UsageImpl) and check that they give the same result   
+     -- run all (String, UsageImpl) and check that they give the same result  
     s <- getState
     let runnable = (map (checkTUsage  . snd)) lst
     let result = map (\v -> runState v [s]) runnable
-    assert' (all isJust result)
-    let result'  = map (snd . fromJust) result
+    assert' (all isRight result)
+    let result'  = map snd $ rights result
     let result'' = allValidStates result'
     return result''
 
@@ -805,8 +844,17 @@ findMethod' name = do
 
 checkTCBr :: [(String, UsageImpl)] -> NDUsageState ()
 checkTCBr lst = forAll' $ do
-    assert' (not (null lst))
-    fail "uwu"
+    assert' $ not (null lst)
+    let res = map (uncurry checkTCBr') lst 
+    s <- getState
+    let res' = map (\ndstate -> runState ndstate [s]) res
+    assert' $ all isRight res'
+    let res'' = map snd $ rights res'
+    resFirst <- headM res''
+    let resTail = tail res''
+    let result = validEnvironments resFirst resTail
+    return result
+    
 
 checkTCBr' :: String -> UsageImpl -> NDUsageState ()
 checkTCBr' lbl uimpl = forAll' $ do
@@ -825,27 +873,32 @@ checkTCBr' lbl uimpl = forAll' $ do
     let myState = MyState env classes enums 
     let expr = mexpr method
     let res = runState (checkExpression expr) [(myState, BotType)]
-    res' <- snd <$> fromMaybeM res
-    -- check res' that return type fits the return type
+    res' <- snd <$> fromEitherM res -- check res' that return type fits the return type
     -- check res' that envTf can continue with the current State
     -- check res' that the parameter is terminated
     s <- getState
     let terminated = not . lin
-    return $ do
+    let result =  do
         (myState, ti) <- res'
         let (Environments lambda' delta' _) = environments myState
         let paramStack = dParameterStackTypeEnv delta'
         guard (not (null paramStack))
         let (o, (pname, ti'')) = last paramStack
         guard (terminated ti'')
-        let finalRes = runState (checkTUsage uimpl) [s]
-        guard (isJust finalRes)
-        let finalRes' = fromJust finalRes
+        let found  = "this" `envLookupIn` lambda'
+        guard (isRight found) 
+        envTF'' <- snd <$> fromEitherM found
+        let s' = s {fieldTypeEnv = envTF''}
+        let finalRes = runState (checkTUsage uimpl) [s']
+        guard (isRight finalRes)
+        finalRes' <- fromEitherM finalRes
         snd finalRes'
+    return result
 
 checkTCVariable :: String -> NDUsageState ()
 checkTCVariable x = forAll' $ do
-    rec <- getRecursiveEnv
+    s <- getState
+    rec <- getRecursiveUsages
     if isJust (x `lookup` rec)
         then checkTCRec x
         else checkTCVar x 
@@ -898,16 +951,17 @@ checkTClass cls enums c =
 checkTClass' :: [Class] -> [EnumDef] -> Class -> Either String ()
 checkTClass' cls enums c = 
     let classname = cname c
-        usage = cusage c
+        usage     = cusage c
         classdata = ClassData cls classname
-        state = UsageState (initFields (cfields c)) [] (recursiveUsages usage) classdata enums
-        term = runState (checkTUsage (current usage)) [state] 
+        recu      = (recursiveUsages usage)
+        state     = UsageState (initFields (cfields c)) [] recu classdata enums
+        term      = runState (checkTUsage (current usage)) [state] 
     in case term of 
-            (Just (_, term')) -> if any (\term'' -> 
+            (Right (_, term')) -> if any (\term'' -> 
                                                 terminatedEnv (fieldTypeEnv term'')) term'
                                     then Right ()
-                                    else Left "no terminated"
-            Nothing    -> Left "something wrong" 
+                                    else Left $ "no terminated | " ++ show term' ++ " in " ++ classname 
+            (Left err)   -> Left err
 
 initFields :: [Field] -> [(FieldName, Type)]
 initFields [] = []

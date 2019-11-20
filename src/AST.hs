@@ -1,5 +1,7 @@
 module AST where
 
+import Data.List (intercalate)
+
 type ClassName = String
 type FieldName = String
 type MethodName = String
@@ -73,7 +75,10 @@ data Method = Method { rettype :: Type
 
 data Reference = RefParameter ParameterName
                | RefField FieldName
-                 deriving (Show)
+
+instance Show Reference where
+    show (RefParameter pname) = "(par)" ++ pname
+    show (RefField pname)     = "(fld)" ++ pname
 
 data Expression = ExprNew ClassName GenericInstance
                 | ExprAssign FieldName Expression
@@ -90,6 +95,21 @@ data Expression = ExprNew ClassName GenericInstance
                 | ExprReference Reference
                 | ExprLitteral String
                 | ExprObjectName String
-                  deriving (Show)
 
+instance Show Expression where
+    show (ExprNew n g)    = "new " ++ n ++ "<" ++ show g ++ ">"
+    show (ExprAssign f e)   = f ++ " = " ++ show e
+    show (ExprCall r n e)   = show r ++ "." ++ n ++ "( " ++ show e ++ " )"
+    show (ExprSeq e1 e2)    = show e1 ++ ";" ++ show e2
+    show (ExprIf c e1 e2)   = "if ( " ++ show c ++ " ) {" ++ show e1 ++ "} else {" ++ show e2 ++ "}"
+    show (ExprLabel s e)    = "(lbl)" ++ s ++ ": (" ++ show e ++ ")"
+    show (ExprContinue l)   = "continue " ++ l
+    show (ExprBoolConst b)  = show b
+    show (ExprNull)         = "null"
+    show (ExprUnit)         = "unit"
+    show (ExprSwitch r e l) = "switch( " ++ show e ++ " ){" ++ intercalate ", " (map (\(l, e') -> show (ExprLabel l e')) l) ++ "}"
+    show (ExprReturn e)     = "return " ++ show e
+    show (ExprReference r)  = show r
+    show (ExprLitteral s)   = "(lit)" ++ s
+    show (ExprObjectName s) = "(obj)" ++ show s
 

@@ -138,6 +138,7 @@ convertType global classesData classInfo myType u =
                                         Right $ BType $ EnumType name
                              | isJust u -> 
                                         Left $ name ++ "[" ++ show (fromJust u) ++ "] does't make any sense"
+                             | True -> Left $ "unknown type " ++ show name
         (CstClassType name gen usage) | name `elem` (cNames global) -> 
                                             let u'    = convertUsage usage (genericNames classInfo) :: UsageImpl
                                                 gen'  = convertGenericType global classesData (genericNames classInfo) gen
