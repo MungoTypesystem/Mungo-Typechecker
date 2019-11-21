@@ -88,8 +88,12 @@ convertClass global classesData cls =  do
         then Left $ "failed to convert fields " ++ concat failedFields
         else if not $ null failedMethods 
                 then Left $ "failed to convert methods " ++ concat failedMethods
-                else Right $ Class name convertedGeneric' (Usage usage recursiveU) succeededFields succeededMethods
+                else Right $ Class name convertedGeneric' finalUsage succeededFields succeededMethods
     where 
+          finalUsage       =
+                case (usage, recursiveU) of
+                    ((UsageVariable "infer"), []) -> UsageInference 
+                    otherwise                     -> Usage usage recursiveU
           usage            = convertUsage (classUsage cls) (classGeneric cls) 
           recursiveU       = convertUsageList (classRecUsage cls) (classGeneric cls) 
           classInfo        = createClassInfo cls

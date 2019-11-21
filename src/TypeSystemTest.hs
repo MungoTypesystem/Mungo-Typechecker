@@ -5,52 +5,12 @@ import Data.Maybe
 import Control.Monad (ap, liftM, guard, liftM2, forM, when)
 import Control.Arrow (second)
 import Data.List (nub, sort)
-import qualified Control.Monad.Fail as Fail
 import Debug.Trace (trace)
 import Data.Either (rights, isRight, fromRight)
+import StateMonadError
 
 debugTrace str = do
     trace str $ return ()
-    --return ()
-
-data MState s a = MState { runState :: s -> Either String (a, s)}
-                | MStateError String
-
-instance Show (MState s a) where
-    show (MState _)   = "mstate"
-    show (MStateError err) = "mstate err " ++ err 
-
-instance Functor (MState s) where
-    fmap = Control.Monad.liftM
-
-instance Applicative (MState s) where
-    pure  = return
-    (<*>) = Control.Monad.ap
-
-instance Monad (MState s) where
-    return x         = MState $ \s -> Right (x, s)
-    fail str         = MStateError str
-    (MState h) >>= f = MState $ \s -> do (a, newState) <- h s 
-                                         case f a of
-                                            (MState g) -> g newState
-                                            (MStateError err) -> Left err
-    (MStateError str) >>= f = MStateError str                                  
-
-instance Fail.MonadFail (MState s) where
-    fail str         = MStateError str
-
-getState :: MState s s
-getState = MState $ \m -> Right (m, m)
-
-setState :: s -> MState s ()
-setState v = MState $ \m -> Right ((), v)
-
-{--evalState :: MState s a -> s -> a
-evalState act = fst . runState act --}
- 
---execState :: MState s a -> s -> s -> s
---execState act otherwise startState = fromMaybe otherwise (snd <$> runState act startState)
-
 
 type Lambda = [(ObjectName, ((ClassName, Type), FieldTypeEnv))]
 
@@ -129,27 +89,6 @@ forAll f = do
 forAllIn :: NDTypeSystem () -> DTypeSystem [(MyState, Type)] -> NDTypeSystem ()
 forAllIn ts f = ts >> forAll f
 
-
-headM :: Monad m => [a] -> m a
-headM (x:_) = return x
-headM []    = fail ""
-
-lastM :: Monad m => [a] -> m a
-lastM [] = fail "" 
-lastM xs = return $ last xs
-
-initM :: Monad m => [a] -> m [a]
-initM [] = fail ""
-initM xs = return $ init xs
-
-
-fromEitherM :: Monad m => Either String b -> m b
-fromEitherM (Right x) = return x
-fromEitherM (Left x)  = fail x
-
-fromMaybeM :: Monad m => Maybe b -> m b
-fromMaybeM (Just x) = return x
-fromMaybeM _        = fail ""
 
 -- helper rewrite classes
 insertTopTypeClassEasy = 
@@ -236,8 +175,6 @@ convertNDToD nd = do
     (a, newStates) <- fromEitherM $ runState nd [s]
     return $ newStates
 
-envLookupIn :: (Monad m, Eq a) => a -> [(a, b)] -> m b
-envLookupIn k l = fromMaybeM (k `lookup` l)
 
 getField :: String -> DTypeSystem FieldType
 getField fieldname = do
@@ -315,8 +252,9 @@ transitions' recU (UsageVariable str) =
 filterUsages trans lst = map snd $ filter (\(l, u) -> l == trans) lst
 
 lin :: Type -> Bool
-lin (CType (cname, _, UsageTop)) = True
-lin (CType (cname, _, usage))    = current usage /= UsageEnd
+--lin (CType (cname, g, Usage (UsageVariable x) recu)) = let uimpl = fromJust (x `lookup` recu) in lin $ (CType (cname, g, Usage uimpl recu))
+lin (CType (cname, _, UsageTop))                     = True
+lin (CType (cname, _, usage))                        = current usage /= UsageEnd
 lin _ = False
 
 agree :: FieldType -> Type -> Bool
@@ -324,10 +262,6 @@ agree (BaseFieldType b1) (BType b2)                    = b1 == b2
 agree (ClassFieldGen cn1 gen1) (CType (cn2, gen2, _) ) = cn1 == cn2 && gen1 == gen2
 agree (ClassFieldGen cn1 gen) (BotType)                = True
 agree _ _ = False
-
-assert' :: Monad m => Bool -> m ()
-assert' True  = return ()
-assert' False = fail "" 
 
 initDelta :: Delta -> Delta
 initDelta (Delta x y) = Delta x (init y)

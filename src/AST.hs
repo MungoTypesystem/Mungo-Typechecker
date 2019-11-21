@@ -11,12 +11,12 @@ type LabelName = String
 type UsageVarName = String
 type GenericClassName = String
 type GenericUsageName = String
-data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq)
+data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq, Ord)
 
 
 data ClassGenericType = ClassNoGeneric 
                       | ClassGeneric GenericClassName  GenericUsageName 
-                   deriving (Show, Eq)
+                   deriving (Show, Eq, Ord)
 
 type Typestate = (ClassName, GenericInstance, Usage)
 
@@ -26,7 +26,7 @@ data GenericInstance = GenericBot
                                        , genericUsage     :: Usage
                                        } 
                      | GenericClass GenericClassName GenericUsageName
-                        deriving (Show, Eq)
+                        deriving (Show, Eq, Ord)
 
 data FieldType = ClassFieldGen ClassName GenericInstance
                | BaseFieldType BaseType
@@ -37,7 +37,7 @@ data Type = BType BaseType
           | CType Typestate
           | BotType
           | GType 
-          deriving (Show, Eq)
+          deriving (Show, Eq, Ord)
 
 data EnumDef = EnumDef String [LabelName]
                 deriving (Show)
@@ -53,14 +53,15 @@ data Usage = Usage { current :: UsageImpl
                    , recursiveUsages :: [(String, UsageImpl)]
                    } 
            | UsageTop
-                deriving (Show, Eq)
+           | UsageInference
+                deriving (Eq, Ord)
 
 data UsageImpl = UsageChoice [(String, UsageImpl)]
                | UsageBranch [(String, UsageImpl)]
                | UsageVariable String
                | UsageEnd
                | UsageGenericVariable
-                 deriving (Show, Eq)
+                 deriving (Eq, Ord)
 
 data Field = Field { ftype :: FieldType
                    , fname :: FieldName 
@@ -112,4 +113,22 @@ instance Show Expression where
     show (ExprReference r)  = show r
     show (ExprLitteral s)   = "(lit)" ++ s
     show (ExprObjectName s) = "(obj)" ++ show s
+
+showStringUsageImpl :: [(String, UsageImpl)] -> String -> String
+showStringUsageImpl l eq = 
+    intercalate ", " (map (\(p, u) -> p ++ eq ++ show u) l)
+
+instance Show Usage where
+    show (Usage c rec) = show c ++ "[ "++ showStringUsageImpl rec " = " ++ " ]"
+    show (UsageTop)       = "(top)"
+    show (UsageInference) = "(inf)"
+
+instance Show UsageImpl where
+    show (UsageChoice ls) = "< " ++ showStringUsageImpl ls "; "++ " >"
+    show (UsageBranch ls) = "{ " ++ showStringUsageImpl ls ": "++ " }"
+    show (UsageVariable x)= x
+    show (UsageEnd)       = "end"
+    show (UsageGenericVariable) = "(gen)"
+
+
 
