@@ -1,12 +1,11 @@
 module SanityCheck where
 
-import Data.List (group, sort, nub)
+import Data.List (group, sort, nub, groupBy)
 import AST 
 import MungoParser
 import Data.Maybe
 import Data.Graph
 import Debug.Trace (trace)
-
 
 -- Helper functions 
 duplicates :: [String] -> [String]
@@ -228,46 +227,80 @@ sanityCheckUsageMethodExist usage recUsage methods =
 
 -- GRAPH STUFF for checking that usage goes to end.
 
-concatNodeListPair :: [([String], [CstUsage])] -> ([String], [CstUsage])
-concatNodeListPair xs = (concat $ aa [], concat $ bb [])
-    where
-        aa = foldl (++) $ map fst xs
-        bb = foldl (++) $ map snd xs
+type Vertices = [String]
+type Edges = [(String, String)]
 
-getNextNodes :: CstUsage -> String -> ([String], [CstUsage])
-getNextNodes usage context =
+getNextMethods :: String -> CstUsage -> [String]
+getNextMethods context usage =
     case usage of
-        (CstUsageBranch branchs) -> (map (++ (context ++ "//")) $ map fst branchs, map snd branchs)
-        (CstUsageChoice choices) -> (concatNodeListPair $ map (`getNextNodes` context) $ map snd choices)
-        (CstUsageVariable var)   -> ([var], [])
-        (CstUsageEnd)            -> (["end"], [CstUsageVariable "end"])
+        (CstUsageEnd) -> ["end"]
+        (CstUsageVariable var) -> [var]
+        (CstUsageChoice choices) -> concat $ map (getNextMethods context) $ map snd choices
+        (CstUsageBranch branchs) -> map (++ (context ++ "//")) $ map fst branchs
 
-buildRecUsagePaths :: [(String, CstUsage)] -> [(String, String, [String])]
-buildRecUsagePaths (x:xs) =
-    [(s, s, nextNodes)] 
-    ++ ((`buildUsagePaths` s) $ snd x)
-    ++ (buildRecUsagePaths xs)
+buildRecUsagePaths :: [(String, CstUsage)] -> Vertices -> Edges -> (Vertices, Edges)
+buildRecUsagePaths (r:rs) vertices edges =
+    buildRecUsagePaths rs nnvertices nnedges
     where
-        s = fst x
-        (nextNodes, nextUsages) = (`getNextNodes` s) $ snd x
-buildRecUsagePaths _ = []
+        (rec, usage) = r
+        nextMethods = getNextMethods rec usage
+        nedges = edges ++ (zip (replicate (length nextMethods) rec) nextMethods)
+        nvertices = vertices ++ [rec]
+        (nnvertices, nnedges) = buildUsagePaths usage nvertices nedges rec
+buildRecUsagePaths _ vertices edges = (vertices, edges)
 
-buildUsagePaths :: CstUsage -> String -> [(String, String, [String])]
-buildUsagePaths usage context =
-    (map (\p -> (fst p, fst p, nub $ snd p)) $ zip cN toNodes) 
-    ++ (concat $ map (`buildUsagePaths` context) cU)
+buildUsagePathsBranch :: [(String, CstUsage)] -> Vertices -> Edges -> String -> (Vertices, Edges)
+buildUsagePathsBranch (u:us) vertices edges context = 
+    buildUsagePathsBranch us n2vertices n2edges context
     where
-        (cN, cU)    = (`getNextNodes` context) usage
-        nNs         = map (`getNextNodes` context) cU
-        toNodes     = map fst nNs
+        (m, usage) = u
+        currM = m ++ context ++ "//"
+        nvertices = vertices ++ [currM]
+        nextMethods = getNextMethods context usage
+        nedges = edges ++ (zip (replicate (length nextMethods) currM) nextMethods)
+        (n2vertices, n2edges) = buildUsagePaths usage nvertices nedges context
+buildUsagePathsBranch _ vertices edges context = (vertices, edges)
 
-buildUsageGraph :: CstUsage -> [(String, CstUsage)] -> (Graph, Int -> (String, String, [String]), String -> Maybe Vertex) 
-buildUsageGraph usage recUsage = 
-    graphFromEdges edges
+buildUsagePathsChoice :: [CstUsage] -> Vertices -> Edges -> String -> (Vertices, Edges)
+buildUsagePathsChoice (u:us) vertices edges context =
+    buildUsagePathsChoice us nvertices nedges context
     where
-        recEdges   = buildRecUsagePaths recUsage
-        usageEdges = buildUsagePaths usage ""
-        edges      = recEdges ++ usageEdges
+        (nvertices, nedges) = buildUsagePaths u vertices edges context
+
+buildUsagePaths :: CstUsage -> Vertices -> Edges -> String -> (Vertices, Edges)
+buildUsagePaths usage vertices edges context = 
+    case usage of
+        (CstUsageEnd) -> (vertices ++ ["end"], edges)
+        (CstUsageVariable var) -> (vertices ++ [var], edges)
+        (CstUsageChoice choices) -> buildUsagePathsChoice (map snd choices) vertices edges context
+        (CstUsageBranch branchs) -> buildUsagePathsBranch branchs vertices edges context
+
+buildUsageGraph :: CstUsage -> [(String, CstUsage)] -> (Vertices, Edges)
+buildUsageGraph usage recusage = 
+    (nvertices, nedges)
+    where
+        (vertices, edges) = buildUsagePaths usage [] [] ""
+        (nvertices, nedges) = buildRecUsagePaths recusage vertices edges
+
+bfs :: String -> Vertices -> Edges -> Vertices -> Vertices
+bfs s queue@(q:qs) edges visited =
+    bfs s' queue' edges nvisited
+    where
+        nvisited = visited ++ [s]
+        fromS = filter (\e -> s == (fst e)) edges
+        toVertices = filter (\x -> x `notElem` nvisited && x `notElem` queue) $ map snd fromS
+        queue' = qs ++ toVertices
+        s' = q
+bfs s _ edges visited = 
+    if (s `elem` visited) then visited
+    else bfs s [s] edges visited
+
+graphBfs :: Vertices -> Edges -> [Vertices]
+graphBfs (v:vs) edges =
+    [visitedFromV] ++ graphBfs vs edges
+    where
+        visitedFromV = bfs v [] edges []
+graphBfs _ edges = []
 
 sanityCheckUsageGoesToEnd :: CstClass -> String
 sanityCheckUsageGoesToEnd (CstClass name _ usage recUsage _ _) =
@@ -275,26 +308,18 @@ sanityCheckUsageGoesToEnd (CstClass name _ usage recUsage _ _) =
         then "Usage does not go to end in class " ++ name
     else []
     where
-        (g, v2n, k2v) = buildUsageGraph usage recUsage
-        end           = case (k2v "end") of
-                            Just x -> x
-                            Nothing -> -1
-        vs            = vertices g
-        notEnd        = filter (\v -> notElem end $ reachable g v) vs
+        (vertices, edges) = buildUsageGraph usage recUsage
+        allPaths = graphBfs vertices edges
+        notEnd = filter (\p -> "end" `notElem` p) allPaths
 
-viewGraph :: [CstProgram] -> IO ()
-viewGraph programs = do
+viewGraph' :: [CstProgram] -> IO()
+viewGraph' programs = do
     let program = head programs
     let cls = head $ progClasses program
     let usage = classUsage cls
     let recUsage = classRecUsage cls
-    let (g, v2n, k2v) = buildUsageGraph usage recUsage
-    let vs = vertices g
-    print vs
-    print $ v2n 0
-    print $ v2n 1
-    print $ v2n 2
-    print $ v2n 3
-    print $ v2n 4
-    print $ v2n 5
-    print $ v2n 6
+    let (vertices, edges) = buildUsageGraph usage recUsage
+    print vertices
+    print edges
+    print vertices
+    print edges
