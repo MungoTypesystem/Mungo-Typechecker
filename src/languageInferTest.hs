@@ -10,8 +10,14 @@ import qualified TypeSystemTest as TST
 import qualified TypeSystem as TS
 import UsageInference
 import Data.Graph
+import Data.List
 import Data.Graph.Visualize
+import Data.Graph.DGraph
+import Data.Graph.Connectivity
+import Data.Graph.Types
 import Debug.Trace
+import Data.Maybe
+import Data.Ord
 
 simpleFile = 
     "../ExamplePrograms/nestedinfer.mg"
@@ -42,7 +48,7 @@ convertCST prog = do
 
 inferCheck :: ([Class], [EnumDef]) -> IO ()
 inferCheck (classes, enums) = do
-    let classes' = map maybeInfer classes
+    let classes' = map maybeInfer $ fromJust (sortAcyclic classes)
     forM_ classes' (putStrLn . show . cusage)
     typeCheck (classes', enums)
     where maybeInfer :: Class -> Class
@@ -69,3 +75,22 @@ typeCheck (classes, enums) = do
     putStrLn $ "old " ++ show typeCheckOld
     putStrLn $ "new " ++ show typeCheckNew
     return ()
+
+
+sortAcyclic :: [Class] -> Maybe [Class]
+sortAcyclic cls = do
+    if isAcyclic then Just (sortedList ++ simple) else Nothing
+    where 
+        (toInfer, simple) = partition shouldInfer cls 
+        shouldInfer clazz = (cusage clazz) == UsageInference
+        arcList = [((-->) :: String->String->Arc String ())(cname c') (cname c) | c <- toInfer, c' <- toInfer, c `hasFieldOf` c']
+        graph = fromArcsList arcList
+        sortedList = sortBy isConnectedInGraph toInfer
+        isConnectedInGraph c c' = if areConnected graph (cname c) (cname c') then LT else GT
+        hasFieldOf c c' = 
+            any fieldTypeIsC' fields
+            where fields = cfields c
+                  fieldTypeIsC' f = case ftype f of 
+                    (ClassFieldGen cn _) -> cname c' == cn
+                    _ -> False
+        isAcyclic = any (\(v1,v2) -> areConnected graph v1 v2 && areConnected graph v2 v1) [(v1, v2) | v1 <- (map cname toInfer), v2 <- (map cname toInfer)]
