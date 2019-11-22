@@ -44,29 +44,25 @@ checkCST prog = do
 convertCST :: CstProgram -> IO ()
 convertCST prog = do
     let converted = convertProgram prog
-    either putStrLn inferCheck' converted 
+    either putStrLn inferCheck converted 
 
 inferCheck :: ([Class], [EnumDef]) -> IO ()
 inferCheck (classes, enums) = do
-    let classes' = map maybeInfer $ fromJust (sortAcyclic classes)
+    let classes' = inferFold [] $ fromJust (sortAcyclic classes)
     forM_ classes' (putStrLn . show . cusage)
     typeCheck (classes', enums)
-    where maybeInfer :: Class -> Class
-          maybeInfer cls =
-                if cusage cls == UsageInference 
-                    then let u = inferUsage cls classes enums
-                         in trace (cname cls ++ "---" ++ show u) $ cls {cusage = u} 
-                    else cls
+    where 
+          inferFold done []            = done
+          inferFold done (cls:classes) =
+                let cls' = maybeInfer cls done
+                in inferFold (cls':done) classes
 
-inferCheck' :: ([Class], [EnumDef]) -> IO ()
-inferCheck' (classes, enums) = do
-    forM_ classes maybeInfer 
-    where maybeInfer :: Class -> IO () 
-          maybeInfer cls =
+          maybeInfer :: Class -> [Class] -> Class
+          maybeInfer cls clazzes =
                 if cusage cls == UsageInference 
-                    then let (g, _) = inferGraph cls classes enums 
-                         in void $ plotDGraphPng g graphPng
-                    else return ()
+                    then let u = inferUsage cls clazzes enums
+                         in cls {cusage = u} 
+                    else cls
 
 typeCheck :: ([Class], [EnumDef]) -> IO ()
 typeCheck (classes, enums) = do 
@@ -79,7 +75,7 @@ typeCheck (classes, enums) = do
 
 sortAcyclic :: [Class] -> Maybe [Class]
 sortAcyclic cls = do
-    if isAcyclic then Just (sortedList ++ simple) else Nothing
+    if isAcyclic then trace (unwords (map cname sortedList)) $ Just (simple ++ sortedList) else Nothing
     where 
         (toInfer, simple) = partition shouldInfer cls 
         shouldInfer clazz = (cusage clazz) == UsageInference

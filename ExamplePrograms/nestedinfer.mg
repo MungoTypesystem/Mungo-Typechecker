@@ -53,10 +53,10 @@ class Second {
 	}
 
 	void initBoth(void x) {
-		f1 = new First1;
+		f1 = new First;
 		f1.init1(unit);
 		f1.init2(unit);
-		f2 = new First2;
+		f2 = new First;
 		f2.init1(unit);
 		f2.init2(unit)
 	}
@@ -75,7 +75,7 @@ class Second {
 	}
 
 	void initSingle(void x) {
-		f = new First1
+		f = new First
 	}
 
 	void completeBoth(void x) {

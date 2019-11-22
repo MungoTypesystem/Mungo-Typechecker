@@ -6,12 +6,13 @@ import Data.Either
 import Data.Maybe
 import Control.Arrow
 import Control.Monad (when)
-import Data.List ((\\), union)
+import Data.List ((\\), union, nub)
 import Data.Graph hiding (vertices)
 import Data.Graph.DGraph
 import Data.Graph.Types hiding (union)
 import Data.Graph.Connectivity
 import Data.Graph.Traversal
+import Debug.Trace
 
 type FieldTypeEnv = [(String, Type)]
 
@@ -319,15 +320,17 @@ inferenceClass cls ftypeenv clazzes enumz =
 
         rec = []
 
-initFields :: [Field] -> FieldTypeEnv
-initFields = map initField
+initFields :: [Class] -> [Field] -> FieldTypeEnv
+initFields c = map (initField c)
 
-initField :: Field -> (String, Type)
-initField f = (fname f, initFieldType (ftype f))
+initField :: [Class] -> Field -> (String, Type)
+initField c f = (fname f, initFieldType c (ftype f))
 
-initFieldType :: FieldType -> Type
-initFieldType (BaseFieldType b)            = BType b
-initFieldType (ClassFieldGen c GenericBot) = CType (c, GenericBot, Usage UsageEnd [])
+initFieldType :: [Class] -> FieldType -> Type
+initFieldType _       (BaseFieldType b)            = BType b
+initFieldType clazzes (ClassFieldGen c GenericBot) = 
+    let recu = recursiveUsages . cusage . head $ filter ((c ==) . cname) clazzes 
+    in CType (c, GenericBot, Usage UsageEnd recu)
 
 inferUsage' :: Class -> [Class] -> [EnumDef] -> [FieldTypeEnv] -> [(FieldTypeEnv, String, [FieldTypeEnv])]
 inferUsage' cls clazzes enumz toSearch =
@@ -348,7 +351,7 @@ inferUsage'' cls clazzes enumz res seen (x:notSeen) =
 
 inferUsage''' :: Class -> [Class] -> [EnumDef] -> [(FieldTypeEnv, String, [FieldTypeEnv])]
 inferUsage''' cls clazzes enumz = 
-    inferUsage'' cls clazzes enumz [] [] [(initFields (cfields cls))]
+    inferUsage'' cls clazzes enumz [] [] [(initFields clazzes (cfields cls))]
 
 inferUsage :: Class -> [Class] -> [EnumDef] -> Usage
 inferUsage cls clazzes enumz =
@@ -366,11 +369,11 @@ inferGraph cls clazzes enums =
           unreachableVertices = [v | v <- vertices largeGraph, not (v `elem` finalVertices)]
           finalVertices = [ v | v <- reachableVertices, areConnected largeGraph v firstVertex ]
           reachableVertices = bfsVertices largeGraph firstVertex
-          largeGraph = insertEdgeTriples l' empty
+          largeGraph =  insertEdgeTriples l' empty
           l = inferUsage''' cls clazzes enums
-          envs = [ env' | (env, m, listEnv) <- l, env' <- listEnv ] ++
-                 [ env | (env, _, _) <- l]
-          firstVertex = find (initFields (cfields cls))
+          envs = nub $ [ env' | (env, m, listEnv) <- l, env' <- listEnv ] ++
+                       [ env | (env, _, _) <- l]
+          firstVertex = find (initFields clazzes (cfields cls))
           envs' :: [(FieldTypeEnv, Int)]
           envs' = zip envs [1..]
           find :: FieldTypeEnv -> Int
