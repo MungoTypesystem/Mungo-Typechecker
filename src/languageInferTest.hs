@@ -14,7 +14,7 @@ import Data.Graph.Visualize
 import Debug.Trace
 
 simpleFile = 
-    "../ExamplePrograms/Infer1.mg"
+    "../ExamplePrograms/nestedinfer.mg"
 
 graphPng = 
     "../ExamplePrograms/Output.png"
@@ -38,7 +38,7 @@ checkCST prog = do
 convertCST :: CstProgram -> IO ()
 convertCST prog = do
     let converted = convertProgram prog
-    either putStrLn inferCheck converted 
+    either putStrLn inferCheck' converted 
 
 inferCheck :: ([Class], [EnumDef]) -> IO ()
 inferCheck (classes, enums) = do
@@ -51,6 +51,16 @@ inferCheck (classes, enums) = do
                     then let u = inferUsage cls classes enums
                          in trace (cname cls ++ "---" ++ show u) $ cls {cusage = u} 
                     else cls
+
+inferCheck' :: ([Class], [EnumDef]) -> IO ()
+inferCheck' (classes, enums) = do
+    forM_ classes maybeInfer 
+    where maybeInfer :: Class -> IO () 
+          maybeInfer cls =
+                if cusage cls == UsageInference 
+                    then let (g, _) = inferGraph cls classes enums 
+                         in void $ plotDGraphPng g graphPng
+                    else return ()
 
 typeCheck :: ([Class], [EnumDef]) -> IO ()
 typeCheck (classes, enums) = do 
