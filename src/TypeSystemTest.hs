@@ -10,7 +10,8 @@ import Data.Either (rights, isRight, fromRight)
 import StateMonadError
 
 debugTrace str = do
-    trace str $ return ()
+    --trace str $ return ()
+    return ()
 
 type Lambda = [(ObjectName, ((ClassName, Type), FieldTypeEnv))]
 
@@ -343,7 +344,7 @@ checkExpression e = do
     checkExpression' e
     s' <- getState
     when (null s' && (not (null s)) ) $ debugTrace $ "error in " ++  show e
-    --debugTrace $ show e ++ " | " ++ show (length s) ++ " -> " ++ show (length s')
+    -- debugTrace $ show e ++ " | " ++ show (length s) ++ " -> " ++ show (length s')
 
 
 checkExpression' :: Expression -> NDTypeSystem () 
@@ -406,7 +407,7 @@ checkTCallF fieldName mname expr = forAll $ do
         lambda' <- getLambda
         (o', _) <- lastDelta delta'
         assert' (o' == o)
-        ftype <- getLambdaField fieldName --o `envLookupIn` lambda'
+        ftype <- getLambdaField fieldName 
         (CType (c, gen, usage)) <- fileTypeCType ftype 
         let resultingUsages = filterUsages mname $ transitions usage
         (Method tret _ ptype _ _) <- getMethod c mname gen
@@ -680,10 +681,16 @@ data UsageState = UsageState { fieldTypeEnv     :: FieldTypeEnv
                              , recursiveUsages' :: [(String, UsageImpl)]
                              , classInfo        :: ClassData 
                              , enumsInfo        :: [EnumDef]
-                             } deriving (Show)
+                             } 
+                | UsageStateAny deriving (Show)
+
+isUsageState (UsageStateAny) = False 
+isUsageState _               = True
 
 instance Eq UsageState where
-    a == b = fieldTypeEnv a == fieldTypeEnv b
+    a == UsageStateAny = True
+    UsageStateAny == b = True
+    a == b             = fieldTypeEnv a == fieldTypeEnv b
 
 type DUsageState a  = MState UsageState a
 type NDUsageState a = MState [UsageState] a
@@ -713,15 +720,18 @@ setFieldTypeEnv ftenv = MState $ \s -> Right ((), s { fieldTypeEnv = ftenv})
 forAll' :: DUsageState [UsageState] -> NDUsageState ()
 forAll' f = do
     states <- getState
-    let states' = concat $ map fst $ rights $ map (runState f) states 
-    rewriteStates' states' 
+    let states' = filter isUsageState states
+    let states'' = concat $ map fst $ rights $ map (runState f) states'
+    when (not (null states')) $ rewriteStates' states''
     return ()
 
 convertNDToD' :: NDUsageState () -> DUsageState [UsageState]
 convertNDToD' nd = do 
     s <- getState
-    (_, newStates) <- fromEitherM $ runState nd [s]
-    return $ newStates
+    if isUsageState s
+        then do (_, newStates) <- fromEitherM $ runState nd [s]
+                return $ newStates
+        else return [s]
 
 allValidStates :: [[UsageState]] -> [UsageState]
 allValidStates []         = []
@@ -732,7 +742,14 @@ allValidStates (x:states) = do
     return s
     
 checkTUsage :: UsageImpl -> NDUsageState ()
-checkTUsage usage = 
+checkTUsage usage = do
+    s <- getState
+    let s' = head s
+    debugTrace $ "usage now " ++ show usage ++ " " ++ show (recursiveEnv s')
+    checkTUsage' usage
+
+checkTUsage' :: UsageImpl -> NDUsageState ()
+checkTUsage' usage = 
     case usage of
         (UsageChoice lst)      -> checkTCCh lst
         (UsageBranch lst)      -> checkTCBr lst
@@ -749,6 +766,7 @@ checkTCCh lst = forAll' $ do
     assert' (all isRight result)
     let result'  = map snd $ rights result
     let result'' = allValidStates result'
+    debugTrace $ "TCCh " ++ show (length result'')
     return result''
 
 findClassCurrent' :: DUsageState String
@@ -787,8 +805,11 @@ checkTCBr lst = forAll' $ do
     resFirst <- headM res''
     let resTail = tail res''
     let result = validEnvironments resFirst resTail
+    --when (null result) $ debugTrace $ "TCBr "  ++ show (lst) ++ " | " ++ show ( fieldTypeEnv s) 
     return result
     
+lbls = ["final", "init"]
+when' lbl = when (False && lbl `elem` lbls)
 
 checkTCBr' :: String -> UsageImpl -> NDUsageState ()
 checkTCBr' lbl uimpl = forAll' $ do
@@ -810,7 +831,8 @@ checkTCBr' lbl uimpl = forAll' $ do
     res' <- snd <$> fromEitherM res -- check res' that return type fits the return type
     -- check res' that envTf can continue with the current State
     -- check res' that the parameter is terminated
-    s <- getState
+    --s <- getState
+    --when' (lbl) $ debugTrace ( "\nhere 1 " ++ show (length res') ++ "\n")
     let terminated = not . lin
     let result =  do
         (myState, ti) <- res'
@@ -822,11 +844,15 @@ checkTCBr' lbl uimpl = forAll' $ do
         let found  = "this" `envLookupIn` lambda'
         guard (isRight found) 
         envTF'' <- snd <$> fromEitherM found
+        when' lbl $debugTrace ( "\n" ++ lbl ++ " here 6 pre" ++ show envTF'' )
         let s' = s {fieldTypeEnv = envTF''}
         let finalRes = runState (checkTUsage uimpl) [s']
         guard (isRight finalRes)
+        --when' lbl $ debugTrace ( "\n" ++ lbl ++ " here 7 " ++ "" ++"\n")
         finalRes' <- fromEitherM finalRes
+        when' lbl $ debugTrace ( "\n" ++ lbl ++ " here 8 post "++ show (map fieldTypeEnv (snd finalRes')) ++"\n")
         snd finalRes'
+    when' lbl $ debugTrace $ "TCBr' "  ++ show lbl ++ " | " ++ show ( fieldTypeEnv s) ++ " -> " ++ show envTf
     return result
 
 checkTCVariable :: String -> NDUsageState ()
@@ -848,6 +874,7 @@ checkTCRec x = do
     assert' (isNothing (x `lookup` recursiveEnv))
     let recursiveEnv' = (x, fieldTypeEnv) : recursiveEnv
     setRecursiveEnv recursiveEnv'
+    debugTrace $ "\ncheckTCRec " ++ x ++ " -> " ++ show fieldTypeEnv ++ "\n"
     convertNDToD' $ checkTUsage usage
 
 checkTCVar :: String -> DUsageState [UsageState]
@@ -856,8 +883,9 @@ checkTCVar x = do
     fieldTypeEnv <- getFieldTypeEnv
     fieldTypeEnv' <- x `envLookupIn` recursiveEnv
     assert' (fieldTypeEnv == fieldTypeEnv')
+    debugTrace $ "\ncheckTCVar " ++ x ++ "->" ++ show fieldTypeEnv ++ "\n"
     s <- getState
-    return [s]
+    return [UsageStateAny]
 
 checkTCEn :: NDUsageState ()
 checkTCEn = forAll' $ do
@@ -892,7 +920,8 @@ checkTClass' cls enums c =
         term      = runState (checkTUsage (current usage)) [state] 
     in case term of 
             (Right (_, term')) -> if any (\term'' -> 
-                                                terminatedEnv (fieldTypeEnv term'')) term'
+                                                terminatedEnv (fieldTypeEnv term'')) term' || null term'
+
                                     then Right ()
                                     else Left $ "no terminated | " ++ show term' ++ " in " ++ classname 
             (Left err)   -> Left err
