@@ -6,7 +6,6 @@ import Control.Applicative (liftA2, liftA3, (<|>))
 import Control.Arrow (second)
 import Data.Maybe
 import Data.Either
-import Debug.Trace
 -- helper data
 
 (<?>) :: Maybe b -> a -> Either a b
@@ -88,8 +87,12 @@ convertClass global classesData cls =  do
         then Left $ "failed to convert fields " ++ concat failedFields
         else if not $ null failedMethods 
                 then Left $ "failed to convert methods " ++ concat failedMethods
-                else Right $ Class name convertedGeneric' (Usage usage recursiveU) succeededFields succeededMethods
+                else Right $ Class name convertedGeneric' finalUsage succeededFields succeededMethods
     where 
+          finalUsage       =
+                case (usage, recursiveU) of
+                    ((UsageVariable "infer"), []) -> UsageInference 
+                    otherwise                     -> Usage usage recursiveU
           usage            = convertUsage (classUsage cls) (classGeneric cls) 
           recursiveU       = convertUsageList (classRecUsage cls) (classGeneric cls) 
           classInfo        = createClassInfo cls
@@ -138,6 +141,7 @@ convertType global classesData classInfo myType u =
                                         Right $ BType $ EnumType name
                              | isJust u -> 
                                         Left $ name ++ "[" ++ show (fromJust u) ++ "] does't make any sense"
+                             | True -> Left $ "unknown type " ++ show name
         (CstClassType name gen usage) | name `elem` (cNames global) -> 
                                             let u'    = convertUsage usage (genericNames classInfo) :: UsageImpl
                                                 gen'  = convertGenericType global classesData (genericNames classInfo) gen

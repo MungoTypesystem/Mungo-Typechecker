@@ -41,7 +41,7 @@ insertTopTypeField ft f =
     in f{ftype = newFt}
         
 insertTopTypeFieldType :: FieldType -> FieldType -> FieldType
-insertTopTypeFieldType replacement (GenericField) = replacement -- ClassFieldGen "$generic" GenericBot 
+insertTopTypeFieldType replacement (GenericField) = replacement 
 insertTopTypeFieldType _           a              = a 
 
 insertTopTypeMethod :: Type -> Method -> Method
@@ -51,7 +51,7 @@ insertTopTypeMethod t m =
     in m {rettype = rt, partype = pt}
 
 insertTopTypeType :: Type -> Type -> Type
-insertTopTypeType replacement GType = replacement -- CType ("$generic", GenericBot, UsageTop) 
+insertTopTypeType replacement GType = replacement 
 insertTopTypeType replacement a     = a
 
 
@@ -255,9 +255,11 @@ checkTFld' cls enums lambda delta omega (ExprAssign fname e) = do
     ((cname, typelookup), envlookup) <- "Field does not exist in lambda" ~~ envLookup lambda' oname
     let lstEl' = lastDelta delta'
 
-    if not a then Left ("Field types does not agree " ++ show (getField cls cname fname) ++ " with " ++ show t') else
-        if not nl then Left "Field does not have a linear type" else
-            Right (BType VoidType, updateLambda lambda' oname fname t', delta', omega')
+    if not a 
+        then Left ("Field types does not agree " ++ show (getField cls cname fname) ++ " with " ++ show t') 
+        else if not nl 
+                    then Left "Field does not have a linear type" 
+                    else Right (BType VoidType, updateLambda lambda' oname fname t', delta', omega')
 
 
 checkTFld :: ExprCheck

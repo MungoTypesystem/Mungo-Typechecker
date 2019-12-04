@@ -1,7 +1,6 @@
-module Main where
+module LanguageInferTest where
 
 import MungoParser 
-import System.Environment
 import AstTransformer
 import AST 
 import Data.Either
@@ -19,10 +18,14 @@ import Data.Graph.Types
 import Data.Maybe
 import Data.Ord
 
-main :: IO ()
-main = do
-    args <- getArgs
-    runFile $ head args
+simpleFile = 
+    "../ExamplePrograms/iaroexample.mg"
+
+graphPng = 
+    "../ExamplePrograms/Output.png"
+
+
+run = runFile simpleFile
 
 runFile :: String -> IO ()
 runFile s = do

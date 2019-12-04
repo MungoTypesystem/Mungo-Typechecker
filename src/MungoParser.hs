@@ -241,7 +241,7 @@ parseRecursiveUsage = do
 
 -- u
 parseBranchUsage :: Parser CstUsage
-parseBranchUsage =   parseEndUsage 
+parseBranchUsage = parseEndUsage 
                  <|> braces parseBranchUsage'
                  <|> parseVariableUsage
 

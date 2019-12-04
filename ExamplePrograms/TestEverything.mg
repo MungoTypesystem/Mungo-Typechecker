@@ -42,8 +42,8 @@ class test1 {
 	}
 	
 	void testEQ(void x) {
-		e = One;
-		e = Two
+		e = one;
+		e = two	
 	}
 	
 	bool testlbl(bool x) {

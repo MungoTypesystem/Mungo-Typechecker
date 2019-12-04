@@ -3,15 +3,6 @@ enum ABC {
 	abc
 }
 
-class test {
-	{g; <abc: {g; end}
-		 def: end>}[]
-		 
-	ABC g(void x) {
-		abc
-	}
-}
-
 class main {
 	{main; end}[]
 	
@@ -25,4 +16,14 @@ class main {
 		};
 		unit
 	}
+} 
+
+class test {
+	{g; <abc: {g; end}
+		 def: end>}[]
+		 
+	ABC g(void x) {
+		abc
+	}
 }
+

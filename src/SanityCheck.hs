@@ -144,7 +144,7 @@ sanityCheckClassGenPar :: CstClass -> [String] -> String
 sanityCheckClassGenPar cls supportedTypes = 
     if isNothing genericPar
         then []
-    else checkOverlap (fromJust genericPar) supportedTypes $ className cls
+        else checkOverlap (fromJust genericPar) supportedTypes $ className cls
     where
         genericPar = classGeneric cls
 
@@ -153,7 +153,7 @@ checkOverlap :: (String, String) -> [String] -> String -> String
 checkOverlap genPar supportedTypes clsName =
     if alpha `elem` supportedTypes || beta `elem` supportedTypes
         then "Overlap error in generic alpha or beta in class " ++ clsName
-    else []
+        else []
     where
         (alpha, beta) = genPar
 
@@ -262,6 +262,7 @@ buildUsagePathsBranch (u:us) vertices edges context =
 buildUsagePathsBranch _ vertices edges context = (vertices, edges)
 
 buildUsagePathsChoice :: [CstUsage] -> Vertices -> Edges -> String -> (Vertices, Edges)
+buildUsagePathsChoice []     vertices edges context = (vertices, edges)
 buildUsagePathsChoice (u:us) vertices edges context =
     buildUsagePathsChoice us nvertices nedges context
     where
@@ -303,10 +304,12 @@ graphBfs (v:vs) edges =
 graphBfs _ edges = []
 
 sanityCheckUsageGoesToEnd :: CstClass -> String
+sanityCheckUsageGoesToEnd (CstClass name _ (CstUsageVariable "infer") []      _ _) = []
+sanityCheckUsageGoesToEnd (CstClass name _ (CstUsageVariable "infer") (x:xs)  _ _) = "Usage infer should have no recursive variables in class " ++ name
 sanityCheckUsageGoesToEnd (CstClass name _ usage recUsage _ _) =
     if (length notEnd) > 0 
         then "Usage does not go to end in class " ++ name
-    else []
+        else []
     where
         (vertices, edges) = buildUsageGraph usage recUsage
         allPaths = graphBfs vertices edges
