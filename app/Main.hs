@@ -32,7 +32,7 @@ runFile s = do
 
 checkCST :: CstProgram -> IO ()
 checkCST prog = do
-    let check = [] :: [String] -- sanityCheck [prog] -- [] :: [String]
+    let check = sanityCheck [prog] -- [] :: [String]
     if not $ null check
         then forM_ check putStrLn >> putStrLn ("error in sanity " ++ show check)
         else convertCST prog
