@@ -1,6 +1,7 @@
 module AST where
 
 import Data.List (intercalate)
+import Data.Maybe (maybe)
 
 type ClassName = String
 type FieldName = String
@@ -37,7 +38,24 @@ data Type = BType BaseType
           | CType Typestate
           | BotType
           | GType 
-          deriving (Show, Eq, Ord)
+          deriving (Show, Ord)
+
+isEnd :: Usage -> Bool
+isEnd u = isEnd' (current u) (recursiveUsages u)
+    where isEnd' (UsageEnd)        _    = True
+          isEnd' (UsageVariable x) recu = maybe False ((flip isEnd') recu) (x `lookup` recu)
+          isEnd' _                 _    = False
+
+
+instance Eq Type where
+    (BType b1)        == (BType b2)         = b1 == b2
+    (BotType)         == (BotType)          = True
+    (GType)           == (GType)            = True
+    (CType t1)        == (CType t2)         = t1 == t2
+    (BotType)         == (CType (_, _, u))  = isEnd u
+    (CType (_, _, u)) == (BotType)          = isEnd u
+    _                 == _                  = False
+    
 
 data EnumDef = EnumDef String [LabelName]
                 deriving (Show)
@@ -116,7 +134,7 @@ instance Show Expression where
 
 showStringUsageImpl :: [(String, UsageImpl)] -> String -> String
 showStringUsageImpl l eq = 
-    intercalate ", " (map (\(p, u) -> p ++ eq ++ show u) l)
+    intercalate " " (map (\(p, u) -> p ++ eq ++ show u) l)
 
 instance Show Usage where
     show (Usage c rec) = show c ++ "[ "++ showStringUsageImpl rec " = " ++ " ]"
@@ -124,8 +142,8 @@ instance Show Usage where
     show (UsageInference) = "(inf)"
 
 instance Show UsageImpl where
-    show (UsageChoice ls) = "< " ++ showStringUsageImpl ls "; "++ " >"
-    show (UsageBranch ls) = "{ " ++ showStringUsageImpl ls ": "++ " }"
+    show (UsageChoice ls) = "< " ++ showStringUsageImpl ls ": "++ " >"
+    show (UsageBranch ls) = "{ " ++ showStringUsageImpl ls "; "++ " }"
     show (UsageVariable x)= x
     show (UsageEnd)       = "end"
     show (UsageGenericVariable) = "(gen)"

@@ -15,12 +15,11 @@ import Data.Graph.Visualize
 import Data.Graph.DGraph
 import Data.Graph.Connectivity
 import Data.Graph.Types
-import Debug.Trace
 import Data.Maybe
 import Data.Ord
 
 simpleFile = 
-    "../ExamplePrograms/nestedinfer.mg"
+    "../ExamplePrograms/iaroexample.mg"
 
 graphPng = 
     "../ExamplePrograms/Output.png"
@@ -68,16 +67,17 @@ typeCheck :: ([Class], [EnumDef]) -> IO ()
 typeCheck (classes, enums) = do 
     let typeCheckOld = TS.checkTProg classes enums 
     let typeCheckNew = TST.checkTProg classes enums 
-    putStrLn $ "old " ++ show typeCheckOld
+    --putStrLn $ "old " ++ show typeCheckOld
     putStrLn $ "new " ++ show typeCheckNew
     return ()
 
 
 sortAcyclic :: [Class] -> Maybe [Class]
+sortAcyclic [] = Just []
 sortAcyclic cls = do
-    if isAcyclic then trace (unwords (map cname sortedList)) $ Just (simple ++ sortedList) else Nothing
+    if isAcyclic || null sortedList then Just (simple ++ sortedList) else Nothing
     where 
-        (toInfer, simple) = partition shouldInfer cls 
+        (toInfer, simple) =  partition shouldInfer cls
         shouldInfer clazz = (cusage clazz) == UsageInference
         arcList = [((-->) :: String->String->Arc String ())(cname c') (cname c) | c <- toInfer, c' <- toInfer, c `hasFieldOf` c']
         graph = fromArcsList arcList

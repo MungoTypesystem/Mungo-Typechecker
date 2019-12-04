@@ -1,9 +1,14 @@
+enum E {
+    A
+    B
+}
+
 class simple
 {
-	{f; end}[]
+	{f; <A: end B: end>}[]
 	
-	void f(void x) {
-		unit
+	E f(void x) {
+	    A	
 	}
 }
 
@@ -12,22 +17,19 @@ class InferMe
 	infer []
 	
 	simple f1
-	simple f2
 	
 	void init(void x) {
 		f1 = new simple
 	}
 	
-	void always(void x) {
-		f2 = new simple;
-		f2.f(unit)
-	}
-	
-	void never(void x) {
-		f2.f(unit)
-	}
-	
-	void final(void x) {
-		f1.f(unit)
+	void final(simple[{f;<A: end B: end>}] x) {
+		switch(f1.f(unit)) {
+            A: unit
+            B: unit
+        };
+		switch(x.f(unit)) {
+            A: unit
+            B: unit
+        }
 	}
 }

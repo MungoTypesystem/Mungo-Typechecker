@@ -6,27 +6,32 @@ import Data.Either
 import Data.Maybe
 import Control.Arrow
 import Control.Monad (when)
-import Data.List ((\\), union, nub)
+import Data.List ((\\), union, nub, groupBy)
 import Data.Graph hiding (vertices)
 import Data.Graph.DGraph
 import Data.Graph.Types hiding (union)
 import Data.Graph.Connectivity
 import Data.Graph.Traversal
+
 import Debug.Trace
+
+debugTrace s = do
+    trace s $ return ()
 
 type FieldTypeEnv = [(String, Type)]
 
-
 type RecursiveEnv = [(String, FieldTypeEnv)]
 
-data InferenceState = InferenceState { fieldTypeEnv :: FieldTypeEnv
-                                     , recursiveEnv :: RecursiveEnv
-                                     , classes :: [Class]
-                                     , enums :: [EnumDef]
+data InferenceState = InferenceState { fieldTypeEnv     :: FieldTypeEnv
+                                     , parameterBinding :: Type
+                                     , recursiveEnv     :: RecursiveEnv
+                                     , classes          :: [Class]
+                                     , enums            :: [EnumDef]
                                      }
 
 instance Eq InferenceState where
     inference1 == inference2 = fieldTypeEnv inference1 == fieldTypeEnv inference2
+
 
 type NDUsageInference a = MState [(InferenceState, Type)] a
 type DUsageInference a = MState (InferenceState, Type) a
@@ -38,6 +43,9 @@ forAll f = do
     setState states' 
     return ()
 
+getReturnType :: DUsageInference Type
+getReturnType = MState $ \s -> Right $ (snd s, s)
+
 findClass :: String -> DUsageInference Class
 findClass name = do
     (s, _) <- getState
@@ -47,6 +55,9 @@ findClass name = do
 
 getFieldTypeEnv :: DUsageInference FieldTypeEnv
 getFieldTypeEnv = fieldTypeEnv . fst <$> getState
+
+getParameterType :: DUsageInference Type 
+getParameterType = parameterBinding . fst <$> getState
 
 updateField :: FieldTypeEnv -> String -> Type -> FieldTypeEnv
 updateField env fieldname t = 
@@ -63,6 +74,12 @@ updateFieldM fieldname t = do
     (s, oldtype) <- getState
     let s' = s {fieldTypeEnv = env'}
     setState (s', oldtype)
+
+updateParameterTypeM :: Type -> DUsageInference ()
+updateParameterTypeM t = do
+    (s, oldType) <- getState
+    let s' = s { parameterBinding = t }
+    setState (s', oldType)
 
 getMethod classname methodname = do 
     (s, _) <- getState
@@ -174,23 +191,43 @@ inferenceFld fieldname expression = do
         return [(s, BType VoidType)]
 
 inferenceCall :: Reference -> String -> Expression -> NDUsageInference ()
-inferenceCall (RefParameter _) _ _ = fail "parameter cannot be inferenced"
+inferenceCall (RefParameter _) m e = inferenceCallP m e
 inferenceCall (RefField f) m e     = inferenceCallF f m e
 
+inferenceCallP :: String -> Expression -> NDUsageInference ()
+inferenceCallP m e = 
+    do inference e
+       forAll $ do
+            ret <- getReturnType
+            ptype <- getParameterType
+            (CType (cn, g, usage)) <- cTypeM ptype
+            let resultingUsages = filterUsages m $ transitions usage
+            (Method tret _ ptype _ _) <- getMethod cn m
+            assert' (ret == ptype)
+            (s, _) <- getState
+            return $ do
+                w <- resultingUsages
+                let s' = s { parameterBinding = (CType (cn, g, w)) }
+                return (s', tret)
+
 inferenceCallF :: String -> String -> Expression -> NDUsageInference ()
-inferenceCallF fieldname m e = forAll $ do
-    fieldTypeE <- getFieldTypeEnv
-    ftype <- fromMaybeM $ fieldname `lookup` fieldTypeE
-    (CType (cn, g, usage)) <- cTypeM ftype
-    let resultingUsages = filterUsages m $ transitions usage
-    (Method tret _ ptype _ _) <- getMethod cn m
-    (s, _) <- getState
-    let env = fieldTypeEnv s
-    return $ do
-        w <- resultingUsages
-        let env' = updateField env fieldname (CType (cn, g, w))
-        let s' = s { fieldTypeEnv = env' }
-        return (s', tret)
+inferenceCallF fieldname m e = 
+    do inference e
+       forAll $ do
+            ret <- getReturnType
+            fieldTypeE <- getFieldTypeEnv
+            ftype <- fromMaybeM $ fieldname `lookup` fieldTypeE
+            (CType (cn, g, usage)) <- cTypeM ftype
+            let resultingUsages = filterUsages m $ transitions usage
+            (Method tret _ ptype _ _) <- getMethod cn m
+            assert' (ret == ptype)
+            (s, _) <- getState
+            let env = fieldTypeEnv s
+            return $ do
+                w <- resultingUsages
+                let env' = updateField env fieldname (CType (cn, g, w))
+                let s' = s { fieldTypeEnv = env' }
+                return (s', tret)
 
 inferenceSeq :: Expression -> Expression -> NDUsageInference ()
 inferenceSeq e1 e2 = do
@@ -250,15 +287,45 @@ inferenceUnit = forAll $ do
     return [(s, BType VoidType)]
 
 inferenceSwitch :: Reference -> Expression -> [(String, Expression)] -> NDUsageInference ()
-inferenceSwitch (RefParameter _) _ _ = fail "cannot infer SwF"
-inferenceSwitch (RefField f) e cases = inferenceSwF f e cases
+inferenceSwitch (RefParameter _) e cases = inferenceSwP e cases
+inferenceSwitch (RefField f) e cases     = inferenceSwF f e cases
 
+inferenceSwP :: Expression -> [(String, Expression)] -> NDUsageInference ()
+inferenceSwP e cases = do
+    inference e
+    forAll $ do 
+        -- check that returnType is enum
+        ptype <- getParameterType
+        (CType (_, _, usage)) <- cTypeM ptype
+        transitions <- availableChoices usage
+        s <- getState
+        let computations = map (inferenceSwP' cases usage) transitions
+        let computations' = map (\c -> runState c s) computations
+        let computations'' = filter isRight computations' 
+        assert' (length computations'' == length computations')
+        let computations''' = map fst $ rights computations'' 
+        computationHead <- headM computations'''
+        let computationTail = tail computations'''
+        let accepting = validCalculations computationHead computationTail 
+        --debugTrace ("SwP " ++ show accepting)
+        return accepting
+
+inferenceSwP' :: [(String, Expression)] -> Usage -> String -> DUsageInference [(InferenceState, Type)]
+inferenceSwP' expr usage transition = do
+    usage' <- doTransition transition usage
+    ptype <- getParameterType
+    (CType (c, gen, _)) <- cTypeM ptype
+    updateParameterTypeM (CType (c, gen, usage'))
+    expr' <- transition `envLookupIn` expr
+    convertNDToD $ inference expr'
+ 
 inferenceSwF :: String -> Expression -> [(String, Expression)] -> NDUsageInference ()
 inferenceSwF f e cases = do
     inference e
     forAll $ do
+        --retType <- getReturnType
         fieldTypeE <- getFieldTypeEnv
-        ftype <- fromMaybeM $ f `lookup` fieldTypeE
+        ftype <- fromMaybeM $ f `lookup` fieldTypeE 
         (CType (_, _, usage)) <- cTypeM ftype
         transitions <- availableChoices usage
         s <- getState
@@ -270,6 +337,7 @@ inferenceSwF f e cases = do
         computationHead <- headM computations'''
         let computationTail = tail computations'''
         let accepting = validCalculations computationHead computationTail 
+        --debugTrace ("SwF " ++ show accepting)
         return accepting
 
 
@@ -284,7 +352,11 @@ inferenceSwF' expr usage f transition = do
     convertNDToD $ inference expr'
     
 inferenceRef :: Reference -> NDUsageInference ()
-inferenceRef (RefParameter p) = fail "cannot infer parameter reference"
+inferenceRef (RefParameter p) = forAll $ do
+    t <- getParameterType
+    when (lin t) $ updateParameterTypeM BotType
+    (s, _) <- getState
+    return [(s, t)]
 inferenceRef (RefField f)     = forAll $ do
     fieldTypeE <- getFieldTypeEnv
     ftype <- fromMaybeM $ f `lookup` fieldTypeE
@@ -304,19 +376,21 @@ inferenceClass :: Class -> FieldTypeEnv -> [Class] -> [EnumDef]-> [(FieldTypeEnv
 inferenceClass cls ftypeenv clazzes enumz =
     ftypeenv'
     where
-        ftypeenv' = rights $ map evaluateInference m
+        ftypeenv'' = map evaluateInference m
+        ftypeenv' = rights ftypeenv''
 
-        evaluateInference :: (FieldTypeEnv, String, Expression) -> Either String (FieldTypeEnv, String, [FieldTypeEnv])
-        evaluateInference (env, m, expr) =
-            let infered = runState (inference expr) [(s, BotType)]
+        evaluateInference :: (FieldTypeEnv, String, Expression, Type) -> Either String (FieldTypeEnv, String, [FieldTypeEnv])
+        evaluateInference (env, m, expr, t) =
+            let infered = runState (inference expr) [(s t, BotType)]
             in case infered of 
                     Right v  -> Right (env, m, map (fieldTypeEnv . fst) (snd v))
                     Left err -> Left err
 
-        m :: [(FieldTypeEnv, String, Expression)]
-        m = map (\methd -> (ftypeenv, mname methd, mexpr methd)) $ cmethods cls
+        m :: [(FieldTypeEnv, String, Expression, Type)]
+        m = map (\methd -> (ftypeenv, mname methd, mexpr methd, partype methd)) $ cmethods cls
 
-        s = InferenceState ftypeenv rec clazzes enumz
+        s parameterType = 
+                InferenceState ftypeenv parameterType rec clazzes enumz
 
         rec = []
 
@@ -339,13 +413,13 @@ inferUsage' cls clazzes enumz toSearch =
                 inferenceClass cls env clazzes enumz
 
 inferUsage'' :: Class -> [Class] -> [EnumDef] -> [(FieldTypeEnv, String, [FieldTypeEnv])] -> [FieldTypeEnv] -> [FieldTypeEnv] -> [(FieldTypeEnv, String, [FieldTypeEnv])]
-inferUsage'' cls clazzes enumz res seen []          =  res
+inferUsage'' cls clazzes enumz res seen []          = res
 inferUsage'' cls clazzes enumz res seen (x:notSeen) = 
-    let result = inferUsage' cls clazzes enumz [x]
-        res'   = result ++ res
-        seen'  = if x `elem` seen then seen else x:seen
+    let result        = inferUsage' cls clazzes enumz [x]
+        res'          = result ++ res
+        seen'         = if x `elem` seen then seen else x:seen
         possibleFound = concat $ map (\(_, _, env) -> env) result
-        notSeen' = notSeen `union` possibleFound \\ seen'
+        notSeen'      = notSeen `union` possibleFound \\ seen'
     in inferUsage'' cls clazzes enumz res' seen' notSeen'
     
 
@@ -355,15 +429,16 @@ inferUsage''' cls clazzes enumz =
 
 inferUsage :: Class -> [Class] -> [EnumDef] -> Usage
 inferUsage cls clazzes enumz =
-    graphToUsage $ inferGraph cls clazzes enumz
+    graphToUsage cls enumz $ inferGraph cls clazzes enumz
 
-inferGraph :: Class -> [Class] -> [EnumDef] -> (DGraph Int String, Int)
+inferGraph :: Class -> [Class] -> [EnumDef] -> (DGraph Int [String], Int)
 inferGraph cls clazzes enums = 
     (finalGraph, firstVertex)
     where 
           finalGraph = insertEdgeTriples [(v, endVertex, m) | v <- reachStart 
-                                                            , let Just (_, _, m) = edgeTriple intermediateGraph v firstVertex] intermediateGraph :: DGraph Int String
-          reachStart = [v | v <- finalVertices, containsEdgePair intermediateGraph (v, firstVertex)]--reachableAdjacentVertices' intermediateGraph firstVertex
+                                                            , let Just (_, _, m) = edgeTriple intermediateGraph v firstVertex] intermediateGraph :: DGraph Int [String]
+          reachStart = [v | v <- finalVertices
+                          , containsEdgePair intermediateGraph (v, firstVertex)]--reachableAdjacentVertices' intermediateGraph firstVertex
           endVertex = 0
           intermediateGraph = removeVertices unreachableVertices largeGraph
           unreachableVertices = [v | v <- vertices largeGraph, not (v `elem` finalVertices)]
@@ -379,16 +454,55 @@ inferGraph cls clazzes enums =
           find :: FieldTypeEnv -> Int
           find k = fromJust (k `lookup` envs')
           -- [(FieldTypeEnv, String, [FieldTypeEnv])] -> 
-          -- [FieldTypeEnv FieldTypeEnv String]
-          l' = [ (find env, find env', m)
-               | (env, m, listEnv) <- l
-               , env' <- listEnv
-               ]
+          -- [FieldTypeEnv FieldTypeEnv [String]]
+    
+          l' = map combineLists l'''
+          combineLists :: [(Int, Int, String)] -> (Int, Int, [String])
+          combineLists ls =
+                let (from, to) = (\(a, b, _) -> (a, b)) $ head ls
+                in (from, to, map (\(_, _, m) -> m) ls)
 
-graphToUsage :: (DGraph Int String, Int) -> Usage 
-graphToUsage (g, first) = 
-    Usage (UsageVariable (show first)) recu
-    where g' = toList g
-          recu = map (\(v, ls) -> (show v, if null ls then UsageEnd else convertBranches ls)) g'
-          convertBranches ls = UsageBranch $ map (\(v', x) -> (x, if v' == 0 then UsageEnd else UsageVariable (show v'))) ls
+          l''' = groupBy (\(a, b, _) (a', b', _) -> a == a' && b == b') l''
+          l'' = [ (find env, find env', m)
+                | (env, m, listEnv) <- l
+                , env' <- listEnv
+                ]
+
+graphToUsage :: Class -> [EnumDef] -> (DGraph Int [String], Int) -> Usage 
+graphToUsage cls enums (g, first) = 
+    if null g'
+        then Usage UsageEnd recu
+        else Usage (UsageVariable ("X" ++ show first)) recu
+    where g'' = toList g
+          g' = [(from, rest) | (from, ls) <- g'' 
+                              , let rest = [(to, m) | (to, mls) <- ls
+                                                    , m <- mls ] ]
+          isChoice m = 
+                let mthds = cmethods cls 
+                    mthd  = head $ filter ((m ==) . mname) mthds
+                    mthdRet = rettype mthd
+                in case mthdRet of
+                        (BType (EnumType t)) -> let (EnumDef _ enumTypes) = 
+                                                       head $ filter (\(EnumDef n _) -> n == t) enums 
+                                                in Just enumTypes
+                        _                    -> Nothing 
+
+          convertList ls = if null ls 
+                                then UsageEnd 
+                                else convertBranches ls
+
+          recu = map (\(v, ls) -> ("X" ++ show v, convertList ls)) g'
+
+          convertBranches' (v', x) = 
+                let target = UsageVariable ("X" ++ (show v'))
+                        {--if v' == 0 
+                            then UsageEnd 
+                            else UsageVariable ("X" ++ (show v'))--}
+                in case isChoice x of 
+                            Just t  -> let choices = map (\m -> (m, target)) t
+                                       in [(x, UsageChoice choices), (x, target)]
+                            Nothing -> [(x, target)]
+
+          convertBranches ls = 
+                UsageBranch $ concat $ map convertBranches' ls
 

@@ -6,7 +6,6 @@ import Control.Applicative (liftA2, liftA3, (<|>))
 import Control.Arrow (second)
 import Data.Maybe
 import Data.Either
-import Debug.Trace
 -- helper data
 
 (<?>) :: Maybe b -> a -> Either a b
