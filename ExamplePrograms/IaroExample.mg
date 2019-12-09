@@ -35,15 +35,6 @@ class Account {
 
 class Customer{
 	infer[]
-    /*X1[ X0 = end 
-        X1 = { createDebitAccount; X3 
-               createSavingsAccount; X4 } 
-        X2 = { closeAccounts; end 
-               closeAccounts; X1 
-               transferFunds; X2} 
-        X3 = { createSavingsAccount; X2 } 
-        X4 = { createDebitAccount; X2 } 
-    ] */
 
     Account savingsAccount
     Account debitAccount
