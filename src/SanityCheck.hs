@@ -42,16 +42,14 @@ sanityCheckDuplicateNames classes enums =
 
 sanityCheckPrograms :: [CstProgram] -> [String]
 sanityCheckPrograms programs =
-    duplicateNameErrs ++ fieldTypeErrs ++ methodTypeErrs ++ classErrs ++ overlapErrs
+    duplicateNameErrs ++ classErrs ++ overlapErrs
     where
         classes           = concat $ map progClasses programs
         enums             = concat $ map progEnums programs
         supportedTypes    = getAllTypes classes enums
         duplicateNameErrs = sanityCheckDuplicateNames classes enums
-        fieldTypeErrs     = concat $ map (`sanityCheckFieldTypes` supportedTypes) $ map classFields classes
-        methodTypeErrs    = concat $ map (`sanityCheckMethodTypes` supportedTypes) $ map classMethods classes
         overlapErrs       = map (`sanityCheckClassGenPar` supportedTypes) $ classes
-        classErrs         = concat $ map sanityCheckClass classes
+        classErrs         = concat $ map (`sanityCheckClass` supportedTypes) classes
 
 --- Check Types with generics
     -- Check type names exist
@@ -167,15 +165,20 @@ sanityCheckEnums programs =
 
 -- CLASS CHECKING
 -- Combines errors from sub-class checkers.
-sanityCheckClass :: CstClass -> [String]
-sanityCheckClass cls@(CstClass name _ usage recusage fields methods) =
-    usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs
+sanityCheckClass :: CstClass -> [String] -> [String]
+sanityCheckClass cls@(CstClass name gen usage recusage fields methods) supportedTypes =
+    usageErrs ++ fieldErrs ++ methodErrs ++ parameterErrs ++ fieldTypeErrs ++ methodTypeErrs
     where 
         usageErrs      = sanityCheckUsageRecVariables usage recusage
                         ++ sanityCheckUsageMethodExist usage recusage methods
                         ++ [sanityCheckUsageGoesToEnd cls]
         fieldErrs      = sanityCheckFieldVariables fields
         methodErrs     = sanityCheckMethods methods
+        genericClassTypes = case gen of
+                                Nothing -> []
+                                Just a -> fst a 
+        fieldTypeErrs     = sanityCheckFieldTypes fields (supportedTypes ++ [genericClassTypes])
+        methodTypeErrs    = sanityCheckMethodTypes methods (supportedTypes ++ [genericClassTypes])
         parameterErrs  = sanityCheckParameters methods fields 
 
 -- FIELD CHECKING
