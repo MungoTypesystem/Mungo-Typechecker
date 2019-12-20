@@ -6,9 +6,8 @@ import AST
 import Data.Either
 import Control.Monad
 import SanityCheck
-import qualified TypeSystemTest as TST
 import qualified TypeSystem as TS
-import UsageInference
+import qualified UsageInference as UI
 import Data.Graph
 import Data.List
 import Data.Graph.Visualize
@@ -17,6 +16,7 @@ import Data.Graph.Connectivity
 import Data.Graph.Types
 import Data.Maybe
 import Data.Ord
+import Debug.Trace
 
 simpleFile = 
     "../ExamplePrograms/iaroexample.mg"
@@ -49,7 +49,7 @@ inferCheck :: ([Class], [EnumDef]) -> IO ()
 inferCheck (classes, enums) = do
     let classes' = inferFold [] $ fromJust (sortAcyclic classes)
     forM_ classes' (putStrLn . show . cusage)
-    typeCheck (classes', enums)
+    --typeCheck (classes', enums)
     where 
           inferFold done []            = done
           inferFold done (cls:classes) =
@@ -59,16 +59,15 @@ inferCheck (classes, enums) = do
           maybeInfer :: Class -> [Class] -> Class
           maybeInfer cls clazzes =
                 if cusage cls == UsageInference 
-                    then let u = inferUsage cls clazzes enums
+                    then let u = UI.inferUsage cls (cls:clazzes) enums
                          in cls {cusage = u} 
                     else cls
 
 typeCheck :: ([Class], [EnumDef]) -> IO ()
 typeCheck (classes, enums) = do 
-    let typeCheckOld = TS.checkTProg classes enums 
-    let typeCheckNew = TST.checkTProg classes enums 
+    let typeCheck = TS.checkTProg classes enums 
     --putStrLn $ "old " ++ show typeCheckOld
-    putStrLn $ "new " ++ show typeCheckNew
+    putStrLn $ show typeCheck
     return ()
 
 
