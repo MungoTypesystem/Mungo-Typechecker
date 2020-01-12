@@ -1,0 +1,31 @@
+enum Boolean {
+    TRUE
+    FALSE
+}
+
+class LoopImpl {
+    Start[
+        Start = { finished; <TRUE:Start FALSE:End> }
+    ]
+
+    Boolean finished(void x) {
+        TRUE
+    }
+}
+
+class Client1 {
+    infer[]
+
+    LoopImpl loop
+
+    void test(void x) {
+        loop = new LoopImpl;
+        out: 
+        switch(loop.finished(unit)) {
+            TRUE:
+                continue out
+            FALSE: 
+                unit
+        }
+    }
+}

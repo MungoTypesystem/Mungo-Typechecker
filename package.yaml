@@ -25,6 +25,8 @@ dependencies:
 - containers
 - graphite
 - directory
+- parsec-numbers
+
 
 library:
   source-dirs: src

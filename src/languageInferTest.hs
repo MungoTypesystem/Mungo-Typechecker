@@ -19,7 +19,7 @@ import Data.Ord
 import Debug.Trace
 
 simpleFile = 
-    "../ExamplePrograms/iaroexample.mg"
+    "../ExamplePrograms/BoolAndInteger.mg"
 
 graphPng = 
     "../ExamplePrograms/Output.png"
@@ -31,11 +31,12 @@ runFile :: String -> IO ()
 runFile s = do
     file <- readFile s 
     let parsed = parseProgram file
+    putStrLn $ show parsed
     either putStrLn checkCST parsed
 
 checkCST :: CstProgram -> IO ()
 checkCST prog = do
-    let check = sanityCheck [prog] -- [] :: [String]
+    let check =  sanityCheck [prog]  -- [] :: [String]
     if not $ null check
         then forM_ check putStrLn >> putStrLn ("error in sanity " ++ show check)
         else convertCST prog
@@ -49,7 +50,7 @@ inferCheck :: ([Class], [EnumDef]) -> IO ()
 inferCheck (classes, enums) = do
     let classes' = inferFold [] $ fromJust (sortAcyclic classes)
     forM_ classes' (putStrLn . show . cusage)
-    --typeCheck (classes', enums)
+    typeCheck (classes', enums)
     where 
           inferFold done []            = done
           inferFold done (cls:classes) =

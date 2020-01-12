@@ -206,6 +206,7 @@ convertBaseType :: GlobalDefinitions -> String -> Either String BaseType
 convertBaseType global field 
     | field == "void"                 = Right $ VoidType
     | field == "bool"                 = Right $ BoolType
+    | field == "int"                  = Right $ IntType 
     | field `elem` (enumNames global) = Right $ EnumType field
     | otherwise                       = Left "cannot convert to base type"
 
@@ -241,6 +242,11 @@ convertExpression global classesData methodInfo exp = case exp of
     (CstExprUnit)                  -> convertUnit
     (CstExprSwitch cond matches)   -> convertSwitch global classesData methodInfo cond matches
     (CstExprIdentifier str)        -> convertIdentifier global methodInfo str
+    (CstExprIntegerConst n)        -> convertInteger n
+    (CstExprBinaryOp o e1 e2)      -> convertBinaryOp global classesData methodInfo o e1 e2
+    (CstExprNotOp e)               -> convertNegation global classesData methodInfo e 
+
+    
 
 convertNew :: String -> GenericInstance -> Either String Expression
 convertNew name gen = Right $ ExprNew name gen
@@ -302,6 +308,35 @@ convertIdentifier global methodInfo str = parameter' <|> field' <|> literal'
     where parameter' = ExprReference <$> convertToParameter global methodInfo str
           field'     = ExprReference <$> convertToField global methodInfo str
           literal'   = convertToLiteral global methodInfo str
+
+convertInteger :: Integer -> Either String Expression
+convertInteger n = Right $ ExprInteger n
+
+convertBinaryOp :: GlobalDefinitions -> BuilderData -> MethodInfo -> CstOperator -> CstExpression -> CstExpression -> Either String Expression
+convertBinaryOp global classesData methodInfo o e1 e2 = do
+    e1' <- convertExpression global classesData methodInfo e1
+    e2' <- convertExpression global classesData methodInfo e2
+    let o' = convertOp o
+    Right $ ExprBinaryOperator o' e1' e2'
+
+convertNegation :: GlobalDefinitions -> BuilderData -> MethodInfo -> CstExpression -> Either String Expression
+convertNegation global classesData methodInfo e = do
+    e <- convertExpression global classesData methodInfo e
+    Right $ ExprNegation e
+
+convertOp :: CstOperator -> BinaryOperator
+convertOp CstOpEQ   = OpEQ
+convertOp CstOpLT   = OpLT
+convertOp CstOpGT   = OpGT
+convertOp CstOpAnd  = OpAnd
+convertOp CstOpOr   = OpOr
+convertOp CstOpNEQ  = OpNEQ
+convertOp CstOpLEQ  = OpLEQ
+convertOp CstOpGEQ  = OpGEQ
+convertOp CstOpAdd  = OpAdd
+convertOp CstOpSub  = OpSub
+convertOp CstOpDiv  = OpDiv
+convertOp CstOpMult = OpMult
     
 convertToParameter :: GlobalDefinitions -> MethodInfo -> String -> Either String Reference 
 convertToParameter global methodInfo name 

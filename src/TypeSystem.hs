@@ -364,6 +364,10 @@ checkExpression (ExprReturn e)              = checkTRet e
 checkExpression (ExprReference ref)         = checkTRef ref
 checkExpression (ExprLitteral str)          = checkTLit str
 checkExpression (ExprObjectName o)          = checkTObj o 
+checkExpression (ExprBinaryOperator o e1 e2)= checkTBinaryOp o e1 e2 
+checkExpression (ExprNegation e)            = checkTNegation e 
+checkExpression (ExprInteger n)             = checkTInteger n 
+
 
 checkTNew :: String -> GenericInstance -> NDTypeSystem () 
 checkTNew cn gen = forAll $ do
@@ -661,6 +665,49 @@ checkTObj o = forAll $ do
     (s, _) <- getState
     return [(s, (CType typestate))]
 
+checkTBinaryOp :: BinaryOperator -> Expression -> Expression -> NDTypeSystem ()
+checkTBinaryOp o e1 e2 = do 
+    let types = operatorType o
+    let thd (x, y, z) = z
+    let findType t t' = 
+            map thd $ filter (\(t1, t1', t1'') -> t == t1 && t' == t1') types
+    checkExpression e1
+    forAll $ do
+        s <- getState
+        t <- getReturnType
+        xs <- convertNDToD (checkExpression e2)
+        return $ [ (state, t'')
+                 | (state, t') <- xs
+                 , t'' <- findType t t'
+                 ]
+
+checkTNegation :: Expression -> NDTypeSystem ()
+checkTNegation e = do
+    checkExpression e
+    forAll $ do
+        s <- getState
+        t <- getReturnType
+        assert' (t == BType BoolType)
+        return [s]
+
+checkTInteger :: Integer -> NDTypeSystem ()
+checkTInteger n = forAll $ do
+    (s, _) <- getState
+    return [(s, BType IntType)]
+
+
+operatorType :: BinaryOperator -> [(Type, Type, Type)]
+operatorType o = operatorType' o (BType IntType) (BType BoolType)
+
+operatorType' o i b 
+    | o `elem` [OpLT, OpGT, OpGEQ, OpLEQ] = [(i, i, b)]
+    | o `elem` [OpAnd, OpOr]              = [(b, b, b)]
+    | o `elem` [OpEQ, OpNEQ]              = [(i, i, b),
+                                             (b, b, b)]
+    | otherwise                           = [(i, i, i)]
+
+   
+
 
 emptyEnv = Environments l d o
     where l = [] 
@@ -833,6 +880,7 @@ checkTCBr' lbl uimpl = forAll' $ do
             guard (not (null paramStack))
             let (o, (pname, ti'')) = last paramStack
             guard (terminated ti'')
+            guard (ti == rettype method)
             let found  = "this" `envLookupIn` lambda'
             guard (isRight found) 
             envTF'' <- snd <$> fromEitherM found

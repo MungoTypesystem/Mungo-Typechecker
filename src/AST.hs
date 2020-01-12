@@ -12,7 +12,11 @@ type LabelName = String
 type UsageVarName = String
 type GenericClassName = String
 type GenericUsageName = String
-data BaseType = BoolType | VoidType | EnumType String deriving (Show, Eq, Ord)
+data BaseType = BoolType 
+              | VoidType 
+              | IntType
+              | EnumType String 
+                deriving (Show, Eq, Ord)
 
 
 data ClassGenericType = ClassNoGeneric 
@@ -114,6 +118,23 @@ data Expression = ExprNew ClassName GenericInstance
                 | ExprReference Reference
                 | ExprLitteral String
                 | ExprObjectName String
+                | ExprBinaryOperator BinaryOperator Expression Expression
+                | ExprNegation Expression
+                | ExprInteger Integer
+
+data BinaryOperator = OpEQ
+                    | OpLT
+                    | OpGT
+                    | OpAnd
+                    | OpOr
+                    | OpNEQ
+                    | OpLEQ
+                    | OpGEQ
+                    | OpAdd
+                    | OpSub
+                    | OpDiv
+                    | OpMult
+                    deriving (Show, Eq)
 
 instance Show Expression where
     show (ExprNew n g)    = "new " ++ n ++ "<" ++ show g ++ ">"
@@ -131,6 +152,9 @@ instance Show Expression where
     show (ExprReference r)  = show r
     show (ExprLitteral s)   = "(lit)" ++ s
     show (ExprObjectName s) = "(obj)" ++ show s
+    show (ExprBinaryOperator o e1 e2) = show e1 ++ " " ++ show o ++ " " ++ show e2
+    show (ExprNegation e)   = "(!" ++ show e ++ ")"
+    show (ExprInteger n)    = "(" ++ show n ++")"
 
 showStringUsageImpl :: [(String, UsageImpl)] -> String -> String
 showStringUsageImpl l eq = 

@@ -13,7 +13,7 @@ duplicates = map head . filter ((> 1) . length) . group
 
 getAllTypes :: [CstClass] -> [CstEnum] -> [String]
 getAllTypes classes enums = 
-    ["void", "bool"]
+    ["void", "bool", "int"]
     ++ classNames
     ++ enumNames
     where

@@ -4,9 +4,10 @@ module MungoParser( CstProgram (progClasses, progEnums)
                   , CstUsage (CstUsageEnd, CstUsageChoice, CstUsageBranch, CstUsageVariable)
                   , CstField (CstField, fieldType, fieldName, fieldGen)
                   , CstMethod (CstMethod, methodName, methodType, parameterName, parameterType, methodTypeUsage, parameterTypeUsage, methodExpr)
-                  , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier)
+                  , CstExpression (CstExprNew, CstExprAssign, CstExprCall, CstExprSeq, CstExprIf, CstExprLabel, CstExprContinue, CstExprBoolConst, CstExprNull, CstExprUnit, CstExprSwitch, CstExprIdentifier, CstExprIntegerConst, CstExprBinaryOp, CstExprNotOp)
                   , CstType (CstSimpleType, typeSimpleName, CstClassType, typeClassName, typeClassUsage, typeGeneric)
                   , CstGenInstance (genName, genRecurisve, genUsage, CstGenInstance, CstGenBot)
+                  , CstOperator(CstOpEQ, CstOpLT, CstOpGT, CstOpAnd, CstOpOr, CstOpNEQ, CstOpLEQ, CstOpGEQ, CstOpAdd, CstOpSub, CstOpDiv, CstOpMult)
                   , parseProgram
                   , testType, testType2, testType3 ) where
 
@@ -17,12 +18,14 @@ import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
+import Text.ParserCombinators.Parsec.Number
 import Control.Arrow (left)
 import Data.Maybe
 
-testType = parse parseType ""
-testType2 = parse parseMethod ""
-testType3 = parse parseExpr ""
+
+testType = parse parseExpr ""
+testType2 = parse parseBinaryOp ""
+testType3 = parse parseBinaryExpr ""
 
 data CstProgram = CstProgram { progEnums   :: [CstEnum]
                              , progClasses :: [CstClass] 
@@ -76,6 +79,21 @@ data CstMethod = CstMethod { methodType         :: CstType
                            }
                  deriving (Show)
 
+data CstOperator = CstOpEQ
+                 | CstOpLT
+                 | CstOpGT
+                 | CstOpAnd
+                 | CstOpOr
+                 | CstOpNEQ
+                 | CstOpLEQ
+                 | CstOpGEQ
+                 | CstOpAdd
+                 | CstOpSub
+                 | CstOpDiv
+                 | CstOpMult
+                   deriving (Show)
+
+
 data CstExpression = CstExprNew String CstGenInstance 
                    | CstExprAssign String CstExpression
                    | CstExprCall String String CstExpression
@@ -88,6 +106,9 @@ data CstExpression = CstExprNew String CstGenInstance
                    | CstExprUnit
                    | CstExprSwitch CstExpression [(String, CstExpression)]
                    | CstExprIdentifier String 
+                   | CstExprIntegerConst Integer 
+                   | CstExprBinaryOp CstOperator CstExpression CstExpression
+                   | CstExprNotOp CstExpression
                      deriving (Show)
 
 languageDef =
@@ -108,7 +129,7 @@ languageDef =
                                       , "end"
                                       , "switch"
                                       , "enum" ]
-            , Token.reservedOpNames = ["=", ":"]
+            , Token.reservedOpNames = ["=", ":", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "!", "*", "+", "-", "/"]
             }
 
 lexer = Token.makeTokenParser languageDef
@@ -283,8 +304,11 @@ parseEndUsage :: Parser CstUsage
 parseEndUsage = reserved "end" >> return CstUsageEnd
 
 parseExpr :: Parser CstExpression
-parseExpr =   parseSeqExpr 
-          <|> parseExpr'
+parseExpr = parseSeqExpr 
+
+parseExpr'' =   try parseBinaryExpr
+            <|> parseExpr'
+
 
 parseExpr' :: Parser CstExpression
 parseExpr' = parens parseExpr
@@ -296,6 +320,8 @@ parseExpr' = parens parseExpr
            <|> parseContinueExpr
            <|> parseSwitchExpr
            <|> parseConstValuesExpr
+           <|> parseIntegerExpr
+           <|> parseNotExpr
            <|> parseIdentifierExpr
 
 parseCallExpr :: Parser CstExpression
@@ -303,7 +329,7 @@ parseCallExpr =
     do ref <- identifier
        reservedOp "."
        fname <- identifier
-       expr <- parens $ parseExpr
+       expr <- parens $ parseExpr''
        return $ CstExprCall ref fname expr
 
 parseNewExpr :: Parser CstExpression
@@ -316,13 +342,13 @@ parseNewExpr =
 parseAssignExpr :: Parser CstExpression
 parseAssignExpr = 
     do var <- identifier
-       reserved "="
-       expr <- parseExpr' 
+       reservedOp "="
+       expr <- parseExpr'' 
        return $ CstExprAssign var expr 
 
 parseSeqExpr :: Parser CstExpression
 parseSeqExpr =
-    do list <- (sepBy1 parseExpr' semi)
+    do list <- (sepBy1 parseExpr'' semi)
        return $ unfoldSeqExpr list
 
 unfoldSeqExpr :: [CstExpression] -> CstExpression
@@ -335,7 +361,7 @@ unfoldSeqExpr list =
 parseIfExpr :: Parser CstExpression
 parseIfExpr =
     do reserved "if"
-       cond <- parens parseExpr
+       cond <- parens parseExpr''
        expr1 <- braces parseExpr
        reserved "else"
        expr2 <- braces parseExpr
@@ -376,3 +402,39 @@ parseIdentifierExpr =
     do str <- identifier
        return $ CstExprIdentifier str 
 
+parseIntegerExpr :: Parser CstExpression
+parseIntegerExpr = do
+    many space
+    number <- int
+    many space
+    return $ CstExprIntegerConst number
+
+parseNotExpr :: Parser CstExpression
+parseNotExpr = do
+    many space
+    reservedOp "!"
+    e <- parseExpr''
+    return $ CstExprNotOp e
+
+parseBinaryExpr :: Parser CstExpression
+parseBinaryExpr = do
+    e1 <- parseExpr'
+    many space
+    op <- parseBinaryOp
+    e2 <- parseExpr''
+    return $ CstExprBinaryOp op e1 e2
+
+parseBinaryOp :: Parser CstOperator
+parseBinaryOp =
+        (reservedOp "==" >> return CstOpEQ)
+    <|> (reservedOp "<"  >> return CstOpLT)
+    <|> (reservedOp ">"  >> return CstOpGT)
+    <|> (reservedOp "&&" >> return CstOpAnd)
+    <|> (reservedOp "||" >> return CstOpOr)
+    <|> (reservedOp "!=" >> return CstOpNEQ)
+    <|> (reservedOp "<=" >> return CstOpLEQ)
+    <|> (reservedOp ">=" >> return CstOpGEQ)
+    <|> (reservedOp "*"  >> return CstOpMult)
+    <|> (reservedOp "-"  >> return CstOpSub)
+    <|> (reservedOp "+"  >> return CstOpAdd)
+    <|> (reservedOp "/"  >> return CstOpDiv)
