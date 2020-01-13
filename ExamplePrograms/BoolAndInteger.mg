@@ -1,9 +1,9 @@
-class Test<a[b]> {
+class Test {
 	infer[]
 
 	int x
 	
-    void x(a[b] y) {
+    void f(void y) {
 		x = 0;
 		loop: 
 			x = x + 1;

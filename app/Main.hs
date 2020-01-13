@@ -7,9 +7,8 @@ import AST
 import Data.Either
 import Control.Monad
 import SanityCheck
-import qualified TypeSystemTest as TST
 import qualified TypeSystem as TS
-import UsageInference
+import qualified UsageInference as UI
 import Data.Graph
 import Data.List
 import Data.Graph.Visualize
@@ -56,14 +55,13 @@ inferCheck (classes, enums) = do
           maybeInfer :: Class -> [Class] -> Class
           maybeInfer cls clazzes =
                 if cusage cls == UsageInference 
-                    then let u = inferUsage cls clazzes enums
+                    then let u = UI.inferUsage cls (cls:clazzes) enums
                          in cls {cusage = u} 
                     else cls
 
 typeCheck :: ([Class], [EnumDef]) -> IO ()
 typeCheck (classes, enums) = do 
-    let typeCheckOld = TS.checkTProg classes enums 
-    let typeCheckNew = TST.checkTProg classes enums 
+    let typeCheckNew = TS.checkTProg classes enums 
     --putStrLn $ "old " ++ show typeCheckOld
     putStrLn $ "new " ++ show typeCheckNew
     return ()
