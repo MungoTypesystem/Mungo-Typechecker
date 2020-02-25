@@ -136,7 +136,9 @@ graphToUsage cls enums (g, first) =
           recu = map (\(v, ls) -> ("X" ++ show v, convertList ls)) g'
 
           convertBranches' (v', x) = 
-                let target = UsageVariable ("X" ++ (show v'))
+                let target = if v' == 0 
+                                then UsageEnd 
+                                else UsageVariable ("X" ++ (show v')) 
                 in case isChoice x of 
                             Just t  -> let choices = map (\m -> (m, target)) t
                                        in [(x, UsageChoice choices), (x, target)]
