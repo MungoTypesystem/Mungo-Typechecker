@@ -46,11 +46,16 @@ data ClassData = ClassData { allClasses    :: [Class]
 data MyState = MyState { environments :: Environments
                        , classData    :: ClassData 
                        , enumsData    :: [EnumDef]
-                       } deriving (Show)
+                       }
+             | MyStateAny -- used to handle TCon
+               deriving (Show)
 
 
 instance Eq MyState where
-    m1 == m2 = environments m1 == environments m2
+    MyStateAny     == _              = True
+    _              == MyStateAny     = True
+    MyState e1 _ _ == MyState e2 _ _ = e1 == e2
+    --m1 == m2 = environments m1 == environments m2
 
 type NDTypeSystem a = MState [(MyState, Type)] a
 type DTypeSystem  a = MState (MyState, Type) a
@@ -69,9 +74,15 @@ allEqual []        = True
 allEqual (a:[])    = True
 allEqual (a:b:lst) = a === b && allEqual (b:lst)
  
+usefulStates :: [(MyState, Type)] -> [(MyState, Type)]
+usefulStates s = 
+    let s' = filter (not . isAnyState . fst) s
+    in if null s' then s else s'
+    where isAnyState MyStateAny = True
+          isAnyState _          = False
 
 rewriteStates :: [(MyState, Type)] -> NDTypeSystem ()
-rewriteStates ls = MState $ \_ -> Right ((), ls)
+rewriteStates ls = MState $ \_ -> Right ((), usefulStates ls)
 
 getMyState ::  DTypeSystem MyState
 getMyState = MState $ \m -> Right (fst m, m)
@@ -84,8 +95,6 @@ forAll f = do
     states <- getState
     let states' = concat $ map fst $ rights $ map (runState f) states 
     rewriteStates states' 
-{--    debugTrace $ "before " ++ show (length states) ++ " " ++ show states
-    debugTrace $ "after " ++ show (length states') ++ " " ++ show states' --}
     return ()
 
 forAllIn :: NDTypeSystem () -> DTypeSystem [(MyState, Type)] -> NDTypeSystem ()
@@ -347,6 +356,12 @@ validCalculations (x:xs) ls = if all (x `elem`) ls
                                     else validCalculations xs ls
 validCalculations []     ls = [] 
 
+assertNotAnyState :: DTypeSystem ()
+assertNotAnyState = do
+    state' <- getMyState
+    case state' of
+        MyStateAny -> fail ""
+        _          -> return ()
 
 checkExpression :: Expression -> NDTypeSystem () 
 checkExpression (ExprNew classname gen)     = checkTNew classname gen
@@ -368,7 +383,6 @@ checkExpression (ExprBinaryOperator o e1 e2)= checkTBinaryOp o e1 e2
 checkExpression (ExprNegation e)            = checkTNegation e 
 checkExpression (ExprInteger n)             = checkTInteger n 
 
-
 checkTNew :: String -> GenericInstance -> NDTypeSystem () 
 checkTNew cn gen = forAll $ do
     currentState <- getMyState 
@@ -379,11 +393,13 @@ checkTNew cn gen = forAll $ do
 
 checkTFld :: String -> Expression -> NDTypeSystem () 
 checkTFld fieldname expr = forAll $ do
+    assertNotAnyState
     (lambda, delta)     <- getEnvironments 
     (oname, (x, ftype)) <- lastDelta delta
     ((cname, _), env)   <- oname `envLookupIn` lambda
     let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
+        assertNotAnyState
         t' <- getReturnType
         f <- getField fieldname
         assert' (agree f t')
@@ -397,16 +413,19 @@ checkTFld fieldname expr = forAll $ do
         state' <- getMyState
         return $ [(state', BType VoidType)]
 
+
 checkTCall :: Reference -> MethodName -> Expression -> NDTypeSystem () 
 checkTCall (RefField name)     mname expr = checkTCallF name mname expr
 checkTCall (RefParameter name) mname expr = checkTCallP name mname expr
 
 checkTCallF :: String -> MethodName -> Expression -> NDTypeSystem () 
 checkTCallF fieldName mname expr = forAll $ do
+    assertNotAnyState
     delta <- getDelta
     (o, _) <- lastDelta delta
     let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
+        assertNotAnyState
         t <- getReturnType
         delta' <- getDelta
         lambda' <- getLambda
@@ -430,10 +449,12 @@ checkTCallF fieldName mname expr = forAll $ do
 
 checkTCallP :: String -> MethodName -> Expression -> NDTypeSystem () 
 checkTCallP parametername mname expr = forAll $ do
+    assertNotAnyState
     delta <- getDelta
     (o, _) <- lastDelta delta
     let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
+        assertNotAnyState
         t <- getReturnType
         delta' <- getDelta
         (o', (x', t')) <- lastDelta delta'
@@ -460,6 +481,7 @@ checkTSeq :: Expression -> Expression -> NDTypeSystem ()
 checkTSeq e1 e2 = do
     checkExpression e1
     forAll $ do
+        assertNotAnyState
         s <- getState
         t <- getReturnType
         assert' (not (lin t))
@@ -486,7 +508,7 @@ checkTIf e1 e2 e3 = do
         assert' (not (null e2Res')) 
         assert' (not (null e3Res')) 
 
-        let res = nub $ e2Res' ++ e3Res'
+        let res = usefulStates $ e2Res' ++ e3Res'
         
         return res
 
@@ -510,7 +532,7 @@ checkTCon lbl = forAll $ do
     assert' (lambda == lambda')
     assert' (delta == delta')
     (s, _) <- getState
-    return [(s, BType VoidType)]
+    return [(MyStateAny, BType VoidType)]
     
 checkTBool :: Bool -> NDTypeSystem ()
 checkTBool b = forAll $ do
@@ -533,10 +555,12 @@ checkTSwitch (RefParameter parametername) e cases = checkTSwP parametername e ca
 
 checkTSwP :: String -> Expression -> [(String, Expression)] -> NDTypeSystem ()
 checkTSwP x expr cases = forAll $ do
+    assertNotAnyState
     delta <- getDelta
     (o, s) <- lastDelta delta
     let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
+        assertNotAnyState
         t <- getReturnType
         delta'' <- getDelta
         (o', (x', t')) <- lastDelta delta''
@@ -573,9 +597,11 @@ checkTSwP' expr usage transition = do
 
 checkTSwF :: String -> Expression -> [(String, Expression)] -> NDTypeSystem ()
 checkTSwF f expr cases = forAll $ do
+    assertNotAnyState
     delta <- getDelta
     let ndChecked = checkExpression expr
     convertNDToD $ forAllIn ndChecked $ do
+        assertNotAnyState
         t <- getReturnType
         delta' <- getDelta
         (o, s) <- lastDelta delta
@@ -631,6 +657,7 @@ checkTRef (RefField fieldname)         = checkTFldRef fieldname
 
 checkTParRef :: String -> NDTypeSystem ()
 checkTParRef parametername = forAll $ do
+    assertNotAnyState
     delta <- getDelta
     (o, (x, t)) <- lastDelta delta
     (myState, _) <- getState
@@ -640,6 +667,7 @@ checkTParRef parametername = forAll $ do
     
 checkTFldRef :: String -> NDTypeSystem ()
 checkTFldRef fieldname = forAll $ do 
+    assertNotAnyState
     delta <- getDelta
     (o, s) <- lastDelta delta
     t <- getLambdaField fieldname

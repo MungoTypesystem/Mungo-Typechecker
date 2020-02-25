@@ -19,7 +19,7 @@ import Data.Ord
 import Debug.Trace
 
 simpleFile = 
-    "../ExamplePrograms/BoolAndInteger.mg"
+    "../ExamplePrograms/TestCon.mg"
 
 graphPng = 
     "../ExamplePrograms/Output.png"
