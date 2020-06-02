@@ -137,6 +137,8 @@ convertType global classesData classInfo myType u =
                                         Right $ BType VoidType
                              | name == "bool" && isNothing u ->
                                         Right $ BType BoolType
+                             | name == "int" && isNothing u ->
+                                        Right $ BType IntType
                              | name `elem` (enumNames global) && isNothing u -> 
                                         Right $ BType $ EnumType name
                              | isJust u -> 
