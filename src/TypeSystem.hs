@@ -3,7 +3,7 @@ module TypeSystem where
 import AST
 import Data.Maybe
 import Control.Monad (ap, liftM, guard, liftM2, forM, when)
-import Control.Arrow (second)
+import Control.Arrow (second, first)
 import Data.List (nub, sort)
 import Data.Either (rights, isRight, fromRight)
 import StateMonadError
@@ -522,7 +522,14 @@ checkTLab lbl e1 = forAll $ do
     updateOmegaM (Omega lbls')
     s <- getState
     (_, states') <- fromEitherM $ runState (checkExpression e1) [s]
-    return states'
+    -- remove label from Omega
+    -- states' :: [(MyState, Type)]
+    let updateO ms = let e         = environments ms 
+                         (Omega o) = omega e
+                         e'        = e {omega = (Omega lbls)}
+                     in ms { environments = e' }
+    let states'' = map (first updateO) states'
+    return states''
 
 checkTCon :: String -> NDTypeSystem ()
 checkTCon lbl = forAll $ do

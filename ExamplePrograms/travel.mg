@@ -64,6 +64,7 @@ class Customer {
                     switch (pv.isFairPrice(price)) {
                         YES: s = agent.accept(unit)
                         NO: (
+							//s = agent.accept(unit)
                             pv = new PriceValidator;
                             continue loop
                         )
