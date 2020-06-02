@@ -25,7 +25,7 @@ class File {
 	{open; checkable} [
 		checkable = {
 			isEOF; <EOF: checkable
-					NOTEOF: {read; checkable}>
+				NOTEOF: {read; checkable}>
 			close; end
 		}
 	]
