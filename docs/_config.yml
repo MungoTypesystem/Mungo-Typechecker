@@ -1,1 +1,7 @@
 theme: jekyll-theme-cayman
+title: Mungo Example Repository
+description: June 2020
+baseurl: /Mungo-Typechecker
+markdown: kramdown
+kramdown:
+  parse_block_html: true
