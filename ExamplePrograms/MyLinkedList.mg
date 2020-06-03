@@ -101,7 +101,7 @@ class LinkedBoolListImpl
 		node = newNode
 	}
 	
-	void getState(void x) {
+	ListState getState(void x) {
 		state
 	}
 	
