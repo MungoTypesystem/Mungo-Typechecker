@@ -1,4 +1,9 @@
 # Mungo-Typechecker
+This repository contains the implementation of a type checker for a version of the Mungo language. The Mungo language was originally developed by the [ABCD group](http://www.dcs.gla.ac.uk/research/mungo/index.html) at University of Glasgow. 
+
+This is an implementation for a alternative version of Mungo, presented in [this paper](https://arxiv.org/abs/2002.12793) by Mario Bravetti, Adrian Francalanza, Iaroslav Golovanov, Hans Hüttel, Mathias Steen Jakobsen, Mikkel Klinke Kettunen and António Ravara.
+
+Examples can be found in the `ExamplePrograms` directory or presented on the [example page](https://mungotypesystem.github.io/Mungo-Typechecker/).
 
 ## Requirements
 - Haskell (`ghc`)
